@@ -125,7 +125,7 @@ def get_fits(ra,dec):
         swarp_command = 'swarp @sdss_%s_list.txt -c %s/swarp.conf -CENTER %2.f,%.2f'%(sdss_bands[ss],defaultsDir,ra,dec)
         os.system(swarp_command)
 
-        rm_command = "rm sdss_%s_list.txt"%sdss_bands[ss]
+        rm_command = "rm sdss_%s_list.txt swarp.xml coadd.weight.fits"%sdss_bands[ss]
         os.system(rm_command)
     
         mv_command = 'mv coadd.fits %s/sdss_%s_refimg.fits'%(path_out_refs,sdss_bands[ss])
