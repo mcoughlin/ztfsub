@@ -42,6 +42,7 @@ def p60hotpants(inlis, refimage, outimage, tu=50000, iu=50000, ig=2.3, tg=2.3,
                 scmd+="%i %.2f " % (ngref[k], ngref[k+1]*float(seepix)/3.0)
         if (scimage==True):
             scmd += ' -n i '
+
         cmd=os.popen(scmd,'r')
         hlines=cmd.readlines()
         cmd.close()
@@ -152,7 +153,10 @@ def p60sdsssub(inlis, refimage, ot, distortdeg=1, scthresh1=3.0,
     #    return 0
     #else:
     #    pix=get_head(refimage,'PIXSCALE')
-    pix=0.396
+    try:
+        pix = get_head(refimage,['PIXSCALE'])[0]
+    except:
+        pix=0.396
 
     for image in images:
 
@@ -178,6 +182,11 @@ def p60sdsssub(inlis, refimage, ot, distortdeg=1, scthresh1=3.0,
                     tu=tu, iu=iu, ig=ig, tg=tg, ko=ko, bgo=bgo, nsx=nsx, 
                     nsy=nsy, radius=radius, tlow=tlow, ilow=ilow2, 
                     sthresh=sthresh, ng=ng, stamps=None, scimage=False)
+
+        #p60hotpants(refimage, '%s.shift.fits' % root, '%s.sub2.fits' % root,
+        #            tu=tu, iu=iu, ig=ig, tg=tg, ko=ko, bgo=bgo, nsx=nsx,
+        #            nsy=nsy, radius=radius, tlow=tlow, ilow=ilow2,
+        #            sthresh=sthresh, ng=ng, stamps=None, scimage=False)
 
         # Photometer subtracted image
         #iraf.phot('%s.sub.fits' % root, coords='ref.coo', output='%s.mag' % 

@@ -25,7 +25,10 @@ def parse_commandline():
     parser.add_option("-i","--inputDir",default="../input")
     parser.add_option("-o","--outputDir",default="../output")
     parser.add_option("-d","--defaultsDir",default="../defaults")
+    parser.add_option("--ra",default=None,type=float)
+    parser.add_option("--declination",default=None,type=float)
     parser.add_option("--image",default="ztf_20171101362384_000608_zr_c01_o_q1_sciimg.fits")
+    parser.add_option("--imagenum",default=None,type=int)
     parser.add_option("--doLinks",  action="store_true", default=False)
     parser.add_option("--doPlots",  action="store_true", default=False)
     parser.add_option("--doAstrometryNet",  action="store_true", default=False)
@@ -79,11 +82,6 @@ def get_fits(ra,dec):
     dec_box = np.arange(-0.1,0.2,0.1)   
  
     BaseURL = 'http://data.sdss3.org/sas/dr9/boss/photoObj/frames/'
-    
-    rm_command = "rm *.fits"
-    os.system(rm_command)
-    rm_command = "rm *.bz2"
-    os.system(rm_command)
 
     Threshold  = 0.3
     for ss in xrange(len(sdss_bands)):
@@ -119,13 +117,19 @@ def get_fits(ra,dec):
                     bunzip2_command = "bunzip2 %s"%FileName
                     os.system(bunzip2_command)
     
-        ls_command = 'ls frame-%s*.fits > sdss_%s_list.txt'%(sdss_bands[ss],sdss_bands[ss])
+        listfile = 'sdss_%s_list.txt'%sdss_bands[ss]
+        ls_command = 'ls frame-%s*.fits > %s'%(sdss_bands[ss],listfile)
         os.system(ls_command)
-   
-        swarp_command = 'swarp @sdss_%s_list.txt -c %s/swarp.conf -CENTER %2.f,%.2f'%(sdss_bands[ss],defaultsDir,ra,dec)
+  
+        lines = [line.rstrip('\n') for line in open(listfile)]
+        if len(lines) == 0:
+            print "No SDSS images available... returning."
+            continue 
+
+        swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %2.f,%.2f -IMAGE_SIZE 1000,1000'%(listfile,defaultsDir,ra,dec)
         os.system(swarp_command)
 
-        rm_command = "rm sdss_%s_list.txt swarp.xml coadd.weight.fits"%sdss_bands[ss]
+        rm_command = "rm %s swarp.xml coadd.weight.fits"%listfile
         os.system(rm_command)
     
         mv_command = 'mv coadd.fits %s/sdss_%s_refimg.fits'%(path_out_refs,sdss_bands[ss])
@@ -167,34 +171,121 @@ if opts.doLinks:
     fid.close()
 links = [line.rstrip('\n') for line in open(linksFile)]
 
+images = []
 for link in links:
-    if image in link:
-        image = link
-        break
-imagefile = image.split("/")[-1]
+    if not opts.imagenum == None:
+        linkSplit = link.split("/")
+        if opts.imagenum == int(linkSplit[-2]):
+            images.append(link)
+    else:
+        if image in link:
+            image = link
+            break
 
-path_out_dir='%s/%s'%(outputDir,imagefile.replace(".fits",""))
-path_out_refs='%s/refs'%(path_out_dir)
-if not os.path.isdir(path_out_refs):
-   os.makedirs(path_out_refs)
+rm_command = "rm *.fits"
+os.system(rm_command)
+rm_command = "rm *.bz2"
+os.system(rm_command)
 
-imagefile = '%s/science.fits'%(path_out_dir)
-if not os.path.isfile(imagefile):
-    wget_command = "wget %s --user %s --password %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])
-    os.system(wget_command)
-    mv_command = "mv %s %s"%(image.split("/")[-1],imagefile)
-    os.system(mv_command)
+if not opts.imagenum == None:
+    tilesFile = '%s/ZTF_Fields.txt'%opts.inputDir
+    tiles = np.loadtxt(tilesFile,comments='%')
+
+    imageSplit = images[0].replace(".fits","").split("_")
+    fieldID = int(imageSplit[-6])
+    idx = np.where(fieldID == tiles[:,0])[0]
+    tile = tiles[idx][0]
+    fieldID, tilera, tiledec = tile[0], tile[1], tile[2]
+
+    path_out_dir='%s/%d'%(outputDir,opts.imagenum)
+    path_out_refs='%s/refs'%(path_out_dir)
+    if not os.path.isdir(path_out_refs):
+        os.makedirs(path_out_refs)
+    imagefile = '%s/science.fits'%(path_out_dir)
+    if not os.path.isfile(imagefile):
+        raimages, decimages = [], []
+        for image in images:
+            wget_command = "wget %s --user %s --password %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])
+            os.system(wget_command)
+
+            hdulist=fits.open(image.split("/")[-1])
+            header = hdulist[0].header
+            raimage, decimage = float(header["CRVAL1"]), float(header["CRVAL2"])
+            raimages.append(raimage)
+            decimages.append(decimage)
+
+        if not opts.ra == None:
+            ra = opts.ra
+        else:
+            ra = tilera
+
+        if not opts.declination == None:
+            dec = opts.declination
+        else:
+            dec = tiledec
+
+        listfile = "ztf_list.txt"
+        ls_command = 'ls ztf_*.fits > %s'%(listfile)
+        os.system(ls_command)
+
+        swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %2.f,%.2f -IMAGE_SIZE 1000,1000'%(listfile,defaultsDir,ra,dec)
+        os.system(swarp_command)
+
+        rm_command = "rm %s swarp.xml coadd.weight.fits"%listfile
+        os.system(rm_command)
+
+        mv_command = 'mv coadd.fits %s'%(imagefile)
+        os.system(mv_command)
+
+        # replace borders with NaNs in ref image if there are any that are == 0,
+        hdulist=fits.open(imagefile)
+        hdulist[0].data[hdulist[0].data==0]=np.nan
+        hdulist.writeto(imagefile,clobber=True)
+        
+        if np.nansum(hdulist[0].data) == 0:
+            print "No data in science image... exiting."
+            exit(0)
+
+
+else:
+    imagefile = image.split("/")[-1]
+    path_out_dir='%s/%s'%(outputDir,imagefile.replace(".fits",""))
+    path_out_refs='%s/refs'%(path_out_dir)
+    if not os.path.isdir(path_out_refs):
+        os.makedirs(path_out_refs)
+    imagefile = '%s/science.fits'%(path_out_dir)
+    if not os.path.isfile(imagefile):
+        wget_command = "wget %s --user %s --password %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])
+        os.system(wget_command)
+        mv_command = "mv %s %s"%(image.split("/")[-1],imagefile)
+        os.system(mv_command)
 
 if opts.doAstrometryNet:
     astrometrynet(imagefile)
 
 hdulist=fits.open(imagefile)
 header = hdulist[0].header
-ra, dec = float(header["CRVAL1"]), float(header["CRVAL2"]) 
+
+if not opts.ra == None:
+    ra = opts.ra
+else:
+    ra = float(header["CRVAL1"])
+
+if not opts.declination == None:
+    dec = opts.declination
+else:
+    dec = float(header["CRVAL2"])
+
+print ra, dec
+print float(header["CRVAL1"]), float(header["CRVAL2"])
+
 coord = SkyCoord(ra*u.deg,dec*u.deg,frame='icrs')
 
 get_fits(ra,dec)
 refimage = '%s/sdss_%s_refimg.fits'%(path_out_refs,'r') 
+if not os.path.isfile(refimage):
+    print "No reference image... stopping."
+    exit(0)
 
 ztfsub.utils.p60sdsssub(imagefile, refimage, [ra,dec], 
                distortdeg=1, scthresh1=3.0,
