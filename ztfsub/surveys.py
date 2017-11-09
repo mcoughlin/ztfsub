@@ -86,10 +86,12 @@ def get_sdss(opts,imagefile,ra,dec,filt):
 
     lines = [line.rstrip('\n') for line in open(listfile)]
     if len(lines) == 0:
+        rm_command = "rm %s"%listfile
+        os.system(rm_command)
         print "No SDSS images available... returning."
-        return
+        return False
 
-    swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d  -PIXEL_SCALE 0.396127'%(listfile,opts.defaultsDir,ra-0.15,dec,opts.image_size,opts.image_size)
+    swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d  -PIXEL_SCALE 0.396127'%(listfile,opts.defaultsDir,ra,dec,opts.image_size,opts.image_size)
     os.system(swarp_command)
 
     rm_command = "rm %s swarp.xml coadd.weight.fits"%listfile
@@ -111,6 +113,8 @@ def get_sdss(opts,imagefile,ra,dec,filt):
     os.system(rm_command)
     rm_command = "rm *.bz2"
     os.system(rm_command)
+
+    return True
 
 def get_ztf(opts,imagefile,imagenum):
     linksFile = '%s/links.txt'%opts.outputDir
@@ -181,5 +185,5 @@ def get_ztf(opts,imagefile,imagenum):
     hdulist[0].data[hdulist[0].data==0]=np.nan
     hdulist.writeto(imagefile,overwrite=True)
 
-    return imagefile
+    return True
 

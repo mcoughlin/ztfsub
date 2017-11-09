@@ -8,6 +8,9 @@ import numpy as np
 
 from astropy.io import fits
 
+import requests
+from lxml.html import fromstring
+
 P60DISTORT = "P60distort.head"
 SUBREGION = "[1:1024,1:1024]"
 
@@ -282,16 +285,19 @@ def get_links():
     doc.make_links_absolute(base_url=url)
     for l in doc.iterlinks():
         if not l[0].tag == 'a': continue
+        if "?" in l[2]: continue
+        if not url in l[2]: continue
         url2 = l[2]
         doc2 = fromstring(requests.get(url2,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
         doc2.make_links_absolute(base_url=url2)
         for m in doc2.iterlinks():
             if not m[0].tag == 'a': continue
+            if "?" in m[2]: continue
+            if not url2 in m[2]: continue
             url3 = m[2]
             doc3 = fromstring(requests.get(url3,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
             doc3.make_links_absolute(base_url=url3)
             for n in doc3.iterlinks():
-
                 url4 = n[2]
                 if not "sciimg.fits" in url4: continue
                 links.append(url4)

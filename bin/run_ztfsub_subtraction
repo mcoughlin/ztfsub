@@ -63,9 +63,14 @@ for fieldID in data.iterkeys():
             imagenum1 = data[fieldID][0]
             imagenum2 = data[fieldID][-1]
 
-            system_command = "python ztfsub_ztf --doPlots --imagenum1 %d --imagenum2 %d --ra %.5f --declination %.5f --image_size 200"%(imagenum1,imagenum2,ragalaxy, decgalaxy)
+            system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d --imagenum2 %d --ra %.5f --declination %.5f --image_size 200"%(imagenum1,imagenum2,ragalaxy, decgalaxy)
             os.system(system_command)
 
+            outDir = "../output/%d_%d/%.5f_%.5f"%(int(imagenum1),int(imagenum2),ragalaxy,decgalaxy)
+            outfile = "%s/panels.pdf"%outDir
+            if not os.path.isfile(outfile):
+                rm_command = "rm -rf %s"%outDir
+                os.system(rm_command)
+
             print system_command
-    print stop
 

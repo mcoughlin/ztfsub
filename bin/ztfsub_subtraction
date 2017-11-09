@@ -65,7 +65,7 @@ if not os.path.isdir(sdssDir):
     os.makedirs(sdssDir)
 
 if opts.doLinks:
-    links = get_links()
+    links = ztfsub.utils.get_links()
     fid = open(linksFile,'w')
     for link in links:
         fid.write("%s\n"%link)
@@ -98,7 +98,9 @@ elif opts.source == "sdss":
 scienceimage = '%s/sci.fits'%(path_out_dir)
 refimage = '%s/ref.fits'%(path_out_dir)
 if not os.path.isfile(scienceimage):
-    ztfsub.surveys.get_ztf(opts,scienceimage,opts.imagenum1)
+    scigood = ztfsub.surveys.get_ztf(opts,scienceimage,opts.imagenum1)
+else:
+    scigood = True
 
 hdulist=fits.open(scienceimage)
 header = hdulist[0].header
@@ -113,10 +115,15 @@ else:
 
 if not os.path.isfile(refimage):
     if opts.source == "ztf":
-        ztfsub.surveys.get_ztf(opts,refimage,opts.imagenum2)
+        refgood = ztfsub.surveys.get_ztf(opts,refimage,opts.imagenum2)
     elif opts.source == "sdss":
-        ztfsub.surveys.get_sdss(opts,refimage,ra,dec,'r')
- 
+        refgood = ztfsub.surveys.get_sdss(opts,refimage,ra,dec,'r')
+else:
+    refgood = True
+
+if not (scigood and refgood):
+    print "Either science or reference image does not have data..."
+    exit(0)
 hdulistsci=fits.open(scienceimage)
 hdulistref=fits.open(refimage)
 if (np.nansum(hdulistsci[0].data) == 0.0) or (np.nansum(hdulistref[0].data) == 0.0):
@@ -145,6 +152,11 @@ ztfsub.utils.p60sdsssub(scienceimage, refimage, [ra,dec],
 
 scienceimageshift = scienceimage.replace(".fits",".shift.fits")
 ztfsub.utils.sextractor(scienceimageshift,defaultsDir)
+
+hdulistscishift=fits.open(scienceimageshift)
+if np.nansum(hdulistscishift[0].data) == 0.0:
+    print "Shifted science does not have data..."
+    exit(0)
 
 imagesub = scienceimage.replace(".fits",".sub.fits")
 imagesubcat = imagesub.replace(".fits",".cat")
@@ -189,5 +201,7 @@ if opts.doPlots:
     #f3.show_circles(catsub[:,3],catsub[:,4],catsub[:,6])
     fig.canvas.draw()
     plotName = os.path.join(path_out_dir,'panels.pdf')
+    plt.savefig(plotName)
+    plotName = os.path.join(path_out_dir,'panels.png')
     plt.savefig(plotName)
     plt.close()    
