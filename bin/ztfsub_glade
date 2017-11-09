@@ -1,0 +1,73 @@
+
+import os, sys, optparse, shutil
+import numpy as np
+from matplotlib import pyplot as plt
+
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+from astropy.table import Table
+
+from astroquery.vizier import Vizier
+
+import matplotlib.path as mplPath
+import h5py    
+from astropy.io import fits
+import aplpy
+
+import requests
+from lxml.html import fromstring
+
+import ztfsub.utils, ztfsub.surveys
+import ztfsub.plotting
+
+def parse_commandline():
+    """
+    Parse the options given on the command-line.
+    """
+    parser = optparse.OptionParser()
+
+    parser.add_option("-i","--inputDir",default="../input")
+    parser.add_option("-o","--outputDir",default="../output")
+    parser.add_option("--imagenum",default=438044,type=int)
+
+    opts, args = parser.parse_args()
+
+    return opts
+
+# Parse command line
+opts = parse_commandline()
+imagenum = opts.imagenum
+outputDir = opts.outputDir
+inputDir = opts.inputDir
+
+linksFile = '%s/links.txt'%outputDir
+links = [line.rstrip('\n') for line in open(linksFile)]
+
+tilesFile = '%s/ZTF_Fields.txt'%opts.inputDir
+tiles = np.loadtxt(tilesFile,comments='%')
+
+images = []
+for link in links:
+    linkSplit = link.split("/")
+    if opts.imagenum == int(linkSplit[-2]):
+        images.append(link)
+
+imageSplit = images[0].replace(".fits","").split("_")
+fieldID = int(imageSplit[-6])
+idx = np.where(fieldID == tiles[:,0])[0]
+tile = tiles[idx][0]
+fieldID, ra, dec = tile[0], tile[1], tile[2]
+
+result = Vizier.query_region(SkyCoord(ra=ra, dec=dec,
+                                     unit=(u.deg, u.deg),
+                                     frame='icrs'),
+                                     width=[1*u.deg,1*u.deg],
+                                     catalog=['VII/275'])
+for table_name in result.keys():
+    table = result[table_name]
+    appM = table["Bmag"] - (5*np.log10(table["Dist"]*1e6) - 5)
+    idxs = np.argsort(appM)
+
+    for idx in idxs:
+        ragalaxy, decgalaxy = table["RAJ2000"][idx], table["DEJ2000"][idx]
+        print ragalaxy, decgalaxy

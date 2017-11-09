@@ -49,7 +49,7 @@ def combine_images(data,ra,dec):
         ra = np.mean(data[filt]["ras"])
         dec = np.mean(data[filt]["decs"])
     
-        swarp_command = 'swarp @ref_%s_list.txt -c %s/swarp.conf -CENTER %2.f,%.2f -IMAGE_SIZE 1000,1000'%(filt,defaultsDir,ra,dec)
+        swarp_command = 'swarp @ref_%s_list.txt -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE 1000,1000'%(filt,defaultsDir,ra,dec)
         os.system(swarp_command)
     
         rm_command = "rm ref_%s_list.txt swarp.xml coadd.weight.fits"%filt

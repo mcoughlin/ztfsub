@@ -10,6 +10,7 @@ from astropy.table import Table
 import matplotlib.path as mplPath
 import h5py    
 from astropy.io import fits
+import aplpy
 
 import requests
 from lxml.html import fromstring
@@ -22,6 +23,7 @@ def parse_commandline():
     """
     parser = optparse.OptionParser()
 
+    parser.add_option("--dataDir",default="../data")
     parser.add_option("-i","--inputDir",default="../input")
     parser.add_option("-o","--outputDir",default="../output")
     parser.add_option("-d","--defaultsDir",default="../defaults")
@@ -29,6 +31,7 @@ def parse_commandline():
     parser.add_option("--declination",default=None,type=float)
     parser.add_option("--image",default="ztf_20171101362384_000608_zr_c01_o_q1_sciimg.fits")
     parser.add_option("--imagenum",default=None,type=int)
+    parser.add_option("--image_size",default=1000,type=int)
     parser.add_option("--doLinks",  action="store_true", default=False)
     parser.add_option("--doPlots",  action="store_true", default=False)
     parser.add_option("--doAstrometryNet",  action="store_true", default=False)
@@ -36,33 +39,6 @@ def parse_commandline():
     opts, args = parser.parse_args()
 
     return opts
-
-def astrometrynet(imagefile):
-
-    os.system('solve-field --no-plots --overwrite %s' % (imagefile))
-    shutil.move(imagefile.replace(".fits",".new"), imagefile)    
-
-def get_links():
-    links = []
- 
-    url = "https://ztfweb.ipac.caltech.edu/ztf/archive/sci/2017/"
-    doc = fromstring(requests.get(url,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
-    doc.make_links_absolute(base_url=url)
-    for l in doc.iterlinks():
-        if not l[0].tag == 'a': continue
-        url2 = l[2]
-        doc2 = fromstring(requests.get(url2,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
-        doc2.make_links_absolute(base_url=url2)
-        for m in doc2.iterlinks():
-            if not m[0].tag == 'a': continue
-            url3 = m[2]
-            doc3 = fromstring(requests.get(url3,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
-            doc3.make_links_absolute(base_url=url3)
-            for n in doc3.iterlinks():
-                url4 = n[2]
-                if not "sciimg.fits" in url4: continue
-                links.append(url4)
-    return links    
 
 def get_fits(ra,dec):
     hdf5file = "%s/SDSS_DR9_Fields_All_PolySort.hdf5"%inputDir
@@ -73,13 +49,14 @@ def get_fits(ra,dec):
     RAAve = (RA1+RA2+RA3+RA4)/4.0
     DecAve = (Dec1+Dec2+Dec3+Dec4)/4.0
     
-    catcoord = SkyCoord(RAAve*u.rad,DecAve*u.rad,frame='icrs')
+    catcoord = SkyCoord(RA1*u.rad,Dec1*u.rad,frame='icrs')
     
     #%%%%%%%%%%%%check if the sdss ref already exists in ../SN/refs/, each band
     #sdss_bands=['u','g','r','i','z']
-    sdss_bands=['g','r']
-    ra_box = np.arange(-0.1,0.2,0.1)
-    dec_box = np.arange(-0.1,0.2,0.1)   
+    #sdss_bands=['g','r']
+    sdss_bands=['r']
+    ra_box = np.arange(-0.2,0.3,0.1)
+    dec_box = np.arange(-0.2,0.3,0.1)   
  
     BaseURL = 'http://data.sdss3.org/sas/dr9/boss/photoObj/frames/'
 
@@ -88,6 +65,8 @@ def get_fits(ra,dec):
         fitsfile = '%s/sdss_%s_refimg.fits'%(path_out_refs,sdss_bands[ss])
         if os.path.isfile(fitsfile): continue
 
+        listfile = 'sdss_%s_list.txt'%sdss_bands[ss]
+        fid = open(listfile,'w')
         for ii in xrange(len(ra_box)):
             for jj in xrange(len(dec_box)):
                 thisra = np.deg2rad(ra + ra_box[ii])
@@ -108,25 +87,29 @@ def get_fits(ra,dec):
     
                     URL = '%s/%d/%d/%d/'%(BaseURL,Rerun[Iid],Run[Iid],Camcol[Iid])
                     FileName = 'frame-%s-%06d-%d-%04d.fits.bz2'%(sdss_bands[ss],Run[Iid],Camcol[Iid],Field[Iid])
+                    FileNameFits = 'frame-%s-%06d-%d-%04d.fits'%(sdss_bands[ss],Run[Iid],Camcol[Iid],Field[Iid])
+                    FileNameFitsPath = '%s/frame-%s-%06d-%d-%04d.fits'%(sdssDir,sdss_bands[ss],Run[Iid],Camcol[Iid],Field[Iid])
                     Link = '%s%s'%(URL,FileName)
     
-                    if os.path.isfile(FileName): continue
+                    fid.write('%s\n'%(FileNameFitsPath))
+                    if os.path.isfile(FileNameFitsPath): continue
     
                     wget_command = "wget %s"%Link
                     os.system(wget_command)
                     bunzip2_command = "bunzip2 %s"%FileName
                     os.system(bunzip2_command)
-    
-        listfile = 'sdss_%s_list.txt'%sdss_bands[ss]
-        ls_command = 'ls frame-%s*.fits > %s'%(sdss_bands[ss],listfile)
-        os.system(ls_command)
-  
+   
+                    mv_command = 'mv %s %s'%(FileNameFits,sdssDir)
+                    os.system(mv_command)
+
+        fid.close()
+
         lines = [line.rstrip('\n') for line in open(listfile)]
         if len(lines) == 0:
             print "No SDSS images available... returning."
             continue 
 
-        swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %2.f,%.2f -IMAGE_SIZE 1000,1000'%(listfile,defaultsDir,ra,dec)
+        swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d  -PIXEL_SCALE 0.396127'%(listfile,defaultsDir,ra-0.15,dec,image_size,image_size)
         os.system(swarp_command)
 
         rm_command = "rm %s swarp.xml coadd.weight.fits"%listfile
@@ -147,6 +130,12 @@ def get_fits(ra,dec):
         mv_command = 'mv %s/sdss_%s_refimg_t.fits %s/sdss_%s_refimg.fits'%(path_out_refs,sdss_bands[ss],path_out_refs,sdss_bands[ss])
         os.system(mv_command)
 
+        catfile = '%s/sdss_%s_refimg.cat'%(path_out_refs,sdss_bands[ss])
+        cmd_sex = 'sex %s/sdss_%s_refimg.fits -c %s/default.sex -PARAMETERS_NAME %s/daofind.param -FILTER_NAME %s/default.conv'%(path_out_refs,sdss_bands[ss],defaultsDir,defaultsDir,defaultsDir)
+        os.system(cmd_sex)
+        mv_command = 'mv test.cat %s'%(catfile)
+        os.system(mv_command)
+
     rm_command = "rm *.fits"
     os.system(rm_command)
     rm_command = "rm *.bz2"
@@ -155,13 +144,22 @@ def get_fits(ra,dec):
 # Parse command line
 opts = parse_commandline()
 image = opts.image
+image_size = opts.image_size
 inputDir = opts.inputDir
 outputDir = opts.outputDir
 defaultsDir = opts.defaultsDir
+dataDir = opts.dataDir
 
 linksFile = '%s/links.txt'%outputDir
 if not os.path.isdir(outputDir):
     os.makedirs(outputDir)
+
+sdssDir = '%s/sdss'%dataDir
+if not os.path.isdir(sdssDir):
+    os.makedirs(sdssDir)
+ztfDir = '%s/ztf'%dataDir
+if not os.path.isdir(ztfDir):
+    os.makedirs(ztfDir)
 
 if opts.doLinks:
     links = get_links()
@@ -198,37 +196,46 @@ if not opts.imagenum == None:
     fieldID, tilera, tiledec = tile[0], tile[1], tile[2]
 
     path_out_dir='%s/%d'%(outputDir,opts.imagenum)
+    if not opts.ra == None:
+        path_out_dir='%s/%.5f_%.5f'%(path_out_dir,opts.ra,opts.declination)
     path_out_refs='%s/refs'%(path_out_dir)
     if not os.path.isdir(path_out_refs):
         os.makedirs(path_out_refs)
     imagefile = '%s/science.fits'%(path_out_dir)
+    #if True:
     if not os.path.isfile(imagefile):
+
+        listfile = "ztf_list.txt"
+        fid = open(listfile,'w')
         raimages, decimages = [], []
         for image in images:
-            wget_command = "wget %s --user %s --password %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])
-            os.system(wget_command)
+            imagefinal = '%s/%s'%(ztfDir,image.split("/")[-1])
+            fid.write('%s\n'%(imagefinal))
 
-            hdulist=fits.open(image.split("/")[-1])
+            if not os.path.isfile(imagefinal):
+                wget_command = "wget %s --user %s --password %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])
+                os.system(wget_command)
+                mv_command = 'mv %s %s'%(image.split("/")[-1],ztfDir)
+                os.system(mv_command)
+
+            hdulist=fits.open(imagefinal)
             header = hdulist[0].header
             raimage, decimage = float(header["CRVAL1"]), float(header["CRVAL2"])
             raimages.append(raimage)
             decimages.append(decimage)
+        fid.close()
 
         if not opts.ra == None:
             ra = opts.ra
         else:
-            ra = tilera
+            ra = np.mean(raimages)
 
         if not opts.declination == None:
             dec = opts.declination
         else:
-            dec = tiledec
+            dec = np.mean(decimages)
 
-        listfile = "ztf_list.txt"
-        ls_command = 'ls ztf_*.fits > %s'%(listfile)
-        os.system(ls_command)
-
-        swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %2.f,%.2f -IMAGE_SIZE 1000,1000'%(listfile,defaultsDir,ra,dec)
+        swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d -PIXEL_SCALE 1.0'%(listfile,defaultsDir,ra-0.15,dec,image_size,image_size)
         os.system(swarp_command)
 
         rm_command = "rm %s swarp.xml coadd.weight.fits"%listfile
@@ -241,12 +248,9 @@ if not opts.imagenum == None:
         hdulist=fits.open(imagefile)
         hdulist[0].data[hdulist[0].data==0]=np.nan
         hdulist.writeto(imagefile,clobber=True)
-        
         if np.nansum(hdulist[0].data) == 0:
             print "No data in science image... exiting."
             exit(0)
-
-
 else:
     imagefile = image.split("/")[-1]
     path_out_dir='%s/%s'%(outputDir,imagefile.replace(".fits",""))
@@ -255,13 +259,19 @@ else:
         os.makedirs(path_out_refs)
     imagefile = '%s/science.fits'%(path_out_dir)
     if not os.path.isfile(imagefile):
-        wget_command = "wget %s --user %s --password %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])
-        os.system(wget_command)
-        mv_command = "mv %s %s"%(image.split("/")[-1],imagefile)
-        os.system(mv_command)
+
+        imagefinalfile = "%s/%s"%(ztfDir,image.split("/")[-1])
+        if not os.path.isfile(imagefinalfile):
+            wget_command = "wget %s --user %s --password %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])
+            os.system(wget_command)
+            mv_command = 'mv %s %s'%(image.split("/")[-1],ztfDir)
+            os.system(mv_command)
+
+        cp_command = "cp %s %s"%(imagefinalfile,imagefile)
+        os.system(cp_command)
 
 if opts.doAstrometryNet:
-    astrometrynet(imagefile)
+    ztfsub.utils.astrometrynet(imagefile)
 
 hdulist=fits.open(imagefile)
 header = hdulist[0].header
@@ -276,10 +286,21 @@ if not opts.declination == None:
 else:
     dec = float(header["CRVAL2"])
 
-print ra, dec
-print float(header["CRVAL1"]), float(header["CRVAL2"])
-
 coord = SkyCoord(ra*u.deg,dec*u.deg,frame='icrs')
+
+if opts.doPlots:
+    hdulist=fits.open(imagefile)
+    sciimage=hdulist[0].data
+    vmin = np.nanmin(sciimage)
+    vmax = np.nanmax(sciimage)
+    ymax,xmax = sciimage.shape
+    plt.figure()
+    plt.imshow(sciimage,vmin=vmin,vmax=vmax,cmap='Greys_r', origin='lower')
+    plt.xlim([0,xmax])
+    plt.ylim([0,ymax])
+    plotName = os.path.join(path_out_dir,'science.pdf')
+    plt.savefig(plotName)
+    plt.close()
 
 get_fits(ra,dec)
 refimage = '%s/sdss_%s_refimg.fits'%(path_out_refs,'r') 
@@ -295,7 +316,7 @@ ztfsub.utils.p60sdsssub(imagefile, refimage, [ra,dec],
                defaultsDir=defaultsDir)
 
 imagefileshift = imagefile.replace(".fits",".shift.fits")
-catfileshift = imagefileshift.replace(".fits",".shift.fits")
+catfileshift = imagefileshift.replace(".fits",".cat")
 cmd_sex = 'sex %s -c %s/default.sex -PARAMETERS_NAME %s/daofind.param -FILTER_NAME %s/default.conv'%(imagefileshift,defaultsDir,defaultsDir,defaultsDir)
 os.system(cmd_sex)
 mv_command = 'mv test.cat %s'%(catfileshift)
@@ -318,9 +339,12 @@ if opts.doPlots:
     catsub = np.loadtxt(catfilesub)
     
     thresh = -5
-    cat1 = cat1[cat1[:,2]<thresh,:]
-    cat2 = cat2[cat2[:,2]<thresh,:]
-    catsub = catsub[catsub[:,2]<thresh,:]
+    if cat1.shape:
+        cat1 = cat1[cat1[:,2]<thresh,:]
+    if cat2.shape:
+        cat2 = cat2[cat2[:,2]<thresh,:]
+    if catsub.shape:
+        catsub = catsub[catsub[:,2]<thresh,:]
     
     hdulist=fits.open(imagefileshift)
     image1=hdulist[0].data
@@ -369,3 +393,28 @@ if opts.doPlots:
     plotName = os.path.join(path_out_dir,'imagesub.pdf')
     plt.savefig(plotName)
     plt.close()
+
+    fig = plt.figure(figsize=(12,4))
+    f1 = aplpy.FITSFigure(imagefileshift,figure=fig,subplot=[0.1,0.1,0.25,0.8])
+    f1.set_tick_labels_font(size='x-small')
+    f1.set_axis_labels_font(size='small')
+    f1.show_grayscale()
+    f1.show_circles(cat1[:,3],cat1[:,4],1,zorder=0) 
+    f2 = aplpy.FITSFigure(refimage, figure=fig, subplot=[0.4,0.1,0.25,0.8])
+    f2.set_tick_labels_font(size='x-small')
+    f2.set_axis_labels_font(size='small')
+    f2.show_grayscale()
+    f2.hide_yaxis_label()
+    f2.hide_ytick_labels()
+    f2.show_circles(cat2[:,3],cat2[:,4],cat2[:,6])
+    f3 = aplpy.FITSFigure(fitsfilesub, figure=fig, subplot=[0.7,0.1,0.25,0.8])
+    f3.set_tick_labels_font(size='x-small')
+    f3.set_axis_labels_font(size='small')
+    f3.show_grayscale()
+    f3.hide_yaxis_label()
+    f3.hide_ytick_labels()
+    f3.show_circles(catsub[:,3],catsub[:,4],catsub[:,6])
+    fig.canvas.draw()
+    plotName = os.path.join(path_out_dir,'panels.pdf')
+    plt.savefig(plotName)
+    plt.close()    

@@ -1,0 +1,71 @@
+
+import os, sys
+
+import numpy as np
+
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+
+from astroquery.vizier import Vizier
+
+from astropy.io import fits
+
+inputDir = "../input"
+tilesFile = '%s/ZTF_Fields.txt'%inputDir
+tiles = np.loadtxt(tilesFile,comments='%')
+
+outputDir = "../output"
+linksFile = '%s/links.txt'%outputDir
+links = [line.rstrip('\n') for line in open(linksFile)]
+
+images = []
+
+for link in links:
+    imagefile = link.split("/")[-1]
+    linkSplit = link.split("/")
+    imagenum = int(linkSplit[-2])
+    imageSplit = imagefile.replace(".fits","").split("_")
+    fieldID = int(imageSplit[-6])
+
+    if fieldID > 10000: continue
+
+    images.append([imagenum,fieldID])
+
+data = {}
+images = np.vstack({tuple(row) for row in images})
+for image in images:
+    imagenum,fieldID = image
+
+    if not fieldID in data:
+        data[fieldID] = []
+    data[fieldID].append(imagenum)
+
+for fieldID in data.iterkeys():
+    if len(data[fieldID]) == 1: continue
+
+    idx = np.where(fieldID == tiles[:,0])[0]
+    tile = tiles[idx][0]
+    fieldID, ra, dec = tile[0], tile[1], tile[2]
+    ra = ra-4.0
+
+    result = Vizier.query_region(SkyCoord(ra=ra, dec=dec,
+                                     unit=(u.deg, u.deg),
+                                     frame='icrs'),
+                                     width=[1*u.deg,1*u.deg],
+                                     catalog=['VII/275'])
+    for table_name in result.keys():
+        table = result[table_name]
+        appM = table["Bmag"] - (5*np.log10(table["Dist"]*1e6) - 5)
+        idxs = np.argsort(appM)
+
+        for idx in idxs:
+            ragalaxy, decgalaxy = table["RAJ2000"][idx], table["DEJ2000"][idx]
+            imagenum1 = data[fieldID][0]
+            imagenum2 = data[fieldID][-1]
+
+            system_command = "python ztfsub_ztf --doPlots --imagenum1 %d --imagenum2 %d --ra %.5f --declination %.5f --image_size 200"%(imagenum1,imagenum2,ragalaxy, decgalaxy)
+            os.system(system_command)
+
+            print system_command
+    print stop
+

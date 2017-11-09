@@ -25,26 +25,46 @@ for link in links:
     linkSplit = link.split("/")
     imagenum = int(linkSplit[-2])
 
+    #if not imagenum == 362384: continue
+    #if not imagenum == 297801: continue
+
     imageSplit = imagefile.replace(".fits","").split("_")
 
     fieldID = int(imageSplit[-6])
 
     if fieldID > 90000: continue
 
-    images.append([imagenum,fieldID])
+    images.append([imagenum,fieldID,link])
 
 images = np.vstack({tuple(row) for row in images})
 
+ztfDir = "../data/ztf"
+
 for image in images:
-    imagenum,fieldID = image
-    print imagenum,fieldID
+    imagenum,fieldID,link = image
+    imagefile = link.split("/")[-1]
+
+    imagefinal = '%s/%s'%(ztfDir,imagefile)
+    if not os.path.isfile(imagefinal):
+        wget_command = "wget %s --user %s --password %s"%(link,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])
+        os.system(wget_command)
+        mv_command = 'mv %s %s'%(imagefile,ztfDir)
+        os.system(mv_command)
+
+    hdulist=fits.open(imagefinal)
+    header = hdulist[0].header
+    ra, dec = float(header["CRVAL1"]), float(header["CRVAL2"])
+    print imagenum,fieldID, imagefile, ra, dec
     #if not fieldID == 608: continue
 
-    idx = np.where(fieldID == tiles[:,0])[0]
+    idx = np.where(int(fieldID) == tiles[:,0].astype(int))[0]
     tile = tiles[idx][0]
-    fieldID, ra, dec = tile[0], tile[1], tile[2]
+    #fieldID, ra, dec = tile[0], tile[1], tile[2]
     #ra = ra + 4.0
     #dec = dec + 4.0
+
+    #system_command = "python ztfsub_sdss --doPlots --image %s"%imagefile
+    #os.system(system_command)
 
     result = Vizier.query_region(coord.SkyCoord(ra=ra, dec=dec,
                                      unit=(u.deg, u.deg),
@@ -57,11 +77,18 @@ for image in images:
         idx = np.nanargmin(appM)
 
         ragalaxy, decgalaxy = table["RAJ2000"][idx], table["DEJ2000"][idx]
-
-        system_command = "python ztfsub_sdss --doPlots --image %s"%imagefile
+  
+        #system_command = "python ztfsub_sdss --doPlots --image %s"%imagefile
         #system_command = "python ztfsub_sdss --doAstrometryNet --doPlots --image %s"%imagefile
-        #system_command = "python ztfsub_sdss --doPlots --imagenum %d --ra %.5f --declination %.5f "%(imagenum,ragalaxy,decgalaxy)
+        system_command = "python ztfsub_sdss --doPlots --imagenum %d --ra %.5f --declination %.5f --image_size 200"%(int(imagenum),ragalaxy,decgalaxy)
         os.system(system_command)
+        print system_command
+
+        outDir = "../output/%d/%.5f_%.5f"%(int(imagenum),ragalaxy,decgalaxy)
+        outfile = "%s/panels.pdf"%outDir
+        if not os.path.isfile(outfile):
+            rm_command = "rm -rf %s"%outDir
+            os.system(rm_command)
 
         #print "python ztfsub_sdss --doPlots --imagenum %d --ra %.5f --declination %.5f "%(imagenum,ragalaxy,decgalaxy)
         #print "python ztfsub_sdss --doPlots --image %s"%imagefile  

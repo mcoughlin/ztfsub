@@ -1,0 +1,193 @@
+
+import os, sys, optparse, shutil
+import numpy as np
+from matplotlib import pyplot as plt
+
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+from astropy.table import Table
+
+import matplotlib.path as mplPath
+import h5py    
+from astropy.io import fits
+import aplpy
+
+import requests
+from lxml.html import fromstring
+
+import ztfsub.utils, ztfsub.surveys
+import ztfsub.plotting
+
+def parse_commandline():
+    """
+    Parse the options given on the command-line.
+    """
+    parser = optparse.OptionParser()
+
+    parser.add_option("--dataDir",default="../data")
+    parser.add_option("-i","--inputDir",default="../input")
+    parser.add_option("-o","--outputDir",default="../output")
+    parser.add_option("-d","--defaultsDir",default="../defaults")
+    parser.add_option("-s","--source",default="ztf")
+    parser.add_option("--ra",default=None,type=float)
+    parser.add_option("--declination",default=None,type=float)
+    parser.add_option("--imagenum1",default=438044,type=int)
+    parser.add_option("--imagenum2",default=436956,type=int)    
+    parser.add_option("--image_size",default=1000,type=int)
+    parser.add_option("--doLinks",  action="store_true", default=False)
+    parser.add_option("--doPlots",  action="store_true", default=False)
+    parser.add_option("--doAstrometryNet",  action="store_true", default=False)
+
+    opts, args = parser.parse_args()
+
+    return opts
+
+# Parse command line
+opts = parse_commandline()
+imagenum1 = opts.imagenum1
+imagenum2 = opts.imagenum2
+image_size = opts.image_size
+inputDir = opts.inputDir
+outputDir = opts.outputDir
+defaultsDir = opts.defaultsDir
+dataDir = opts.dataDir
+
+linksFile = '%s/links.txt'%outputDir
+if not os.path.isdir(outputDir):
+    os.makedirs(outputDir)
+
+ztfDir = '%s/ztf'%dataDir
+if not os.path.isdir(ztfDir):
+    os.makedirs(ztfDir)
+
+sdssDir = '%s/sdss'%dataDir
+if not os.path.isdir(sdssDir):
+    os.makedirs(sdssDir)
+
+if opts.doLinks:
+    links = get_links()
+    fid = open(linksFile,'w')
+    for link in links:
+        fid.write("%s\n"%link)
+    fid.close()
+links = [line.rstrip('\n') for line in open(linksFile)]
+
+rm_command = "rm *.fits"
+os.system(rm_command)
+rm_command = "rm *.bz2"
+os.system(rm_command)
+
+tilesFile = '%s/ZTF_Fields.txt'%opts.inputDir
+tiles = np.loadtxt(tilesFile,comments='%')
+
+if opts.source == "ztf":
+    if not opts.ra == None:
+        path_out_dir='%s/%d_%d/%.5f_%.5f'%(outputDir,opts.imagenum1,opts.imagenum2,opts.ra,opts.declination)
+    else:
+        path_out_dir='%s/%d_%d'%(outputDir,opts.imagenum1,opts.imagenum2)
+    if not os.path.isdir(path_out_dir):
+        os.makedirs(path_out_dir)
+elif opts.source == "sdss":
+    if not opts.ra == None:
+        path_out_dir='%s/%d/%.5f_%.5f'%(outputDir,opts.imagenum1,opts.ra,opts.declination)
+    else:
+        path_out_dir='%s/%d'%(outputDir,opts.imagenum1)
+    if not os.path.isdir(path_out_dir):
+        os.makedirs(path_out_dir)
+
+scienceimage = '%s/sci.fits'%(path_out_dir)
+refimage = '%s/ref.fits'%(path_out_dir)
+if not os.path.isfile(scienceimage):
+    ztfsub.surveys.get_ztf(opts,scienceimage,opts.imagenum1)
+
+hdulist=fits.open(scienceimage)
+header = hdulist[0].header
+if not opts.ra == None:
+    ra = opts.ra
+else:
+    ra = float(header["CRVAL1"])
+if not opts.declination == None:
+    dec = opts.declination
+else:
+    dec = float(header["CRVAL2"])
+
+if not os.path.isfile(refimage):
+    if opts.source == "ztf":
+        ztfsub.surveys.get_ztf(opts,refimage,opts.imagenum2)
+    elif opts.source == "sdss":
+        ztfsub.surveys.get_sdss(opts,refimage,ra,dec,'r')
+ 
+hdulistsci=fits.open(scienceimage)
+hdulistref=fits.open(refimage)
+if (np.nansum(hdulistsci[0].data) == 0.0) or (np.nansum(hdulistref[0].data) == 0.0):
+    print "Either science or reference image does not have data..."
+    exit(0) 
+
+if opts.doAstrometryNet:
+    ztfsub.utils.astrometrynet(scienceimage)
+    ztfsub.utils.astrometrynet(refimage)
+
+if opts.doPlots:
+    plotName = os.path.join(path_out_dir,'sci.pdf')
+    ztfsub.plotting.plot_image(scienceimage,plotName)
+    plotName = os.path.join(path_out_dir,'ref.pdf')
+    ztfsub.plotting.plot_image(refimage,plotName)    
+
+ztfsub.utils.sextractor(scienceimage,defaultsDir)
+ztfsub.utils.sextractor(refimage,defaultsDir)
+
+ztfsub.utils.p60sdsssub(scienceimage, refimage, [ra,dec], 
+               distortdeg=1, scthresh1=3.0,
+               scthresh2=10.0, tu=50000, iu=50000, ig=2.3, tg=1.0,
+               stamps=None, nsx=4, nsy=4, ko=0, bgo=0, radius=10,
+               tlow=0.0, ilow=0.0, sthresh=5.0, ng=None, aperture=10.0,
+               defaultsDir=defaultsDir)
+
+scienceimageshift = scienceimage.replace(".fits",".shift.fits")
+ztfsub.utils.sextractor(scienceimageshift,defaultsDir)
+
+imagesub = scienceimage.replace(".fits",".sub.fits")
+imagesubcat = imagesub.replace(".fits",".cat")
+ztfsub.utils.sextractor(imagesub,defaultsDir)
+
+if opts.doPlots:
+
+    #cat1 = np.loadtxt(catfile1)
+    #cat2 = np.loadtxt(catfile2)
+    #catsub = np.loadtxt(catfilesub)
+    
+    #thresh = -5
+    #if cat1.shape:
+    #    cat1 = cat1[cat1[:,2]<thresh,:]
+    #if cat2.shape:
+    #    cat2 = cat2[cat2[:,2]<thresh,:]
+    #if catsub.shape:
+    #    catsub = catsub[catsub[:,2]<thresh,:]
+    
+    plotName = os.path.join(path_out_dir,'scishift.pdf')
+    ztfsub.plotting.plot_image(scienceimageshift,plotName)
+    
+    fig = plt.figure(figsize=(12,4))
+    f1 = aplpy.FITSFigure(scienceimageshift,figure=fig,subplot=[0.1,0.1,0.25,0.8])
+    f1.set_tick_labels_font(size='x-small')
+    f1.set_axis_labels_font(size='small')
+    f1.show_grayscale()
+    #f1.show_circles(cat1[:,3],cat1[:,4],1,zorder=0) 
+    f2 = aplpy.FITSFigure(refimage, figure=fig, subplot=[0.4,0.1,0.25,0.8])
+    f2.set_tick_labels_font(size='x-small')
+    f2.set_axis_labels_font(size='small')
+    f2.show_grayscale()
+    f2.hide_yaxis_label()
+    f2.hide_ytick_labels()
+    #f2.show_circles(cat2[:,3],cat2[:,4],cat2[:,6])
+    f3 = aplpy.FITSFigure(imagesub, figure=fig, subplot=[0.7,0.1,0.25,0.8])
+    f3.set_tick_labels_font(size='x-small')
+    f3.set_axis_labels_font(size='small')
+    f3.show_grayscale()
+    f3.hide_yaxis_label()
+    f3.hide_ytick_labels()
+    #f3.show_circles(catsub[:,3],catsub[:,4],catsub[:,6])
+    fig.canvas.draw()
+    plotName = os.path.join(path_out_dir,'panels.pdf')
+    plt.savefig(plotName)
+    plt.close()    

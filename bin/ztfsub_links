@@ -1,0 +1,50 @@
+
+import os, sys, optparse, shutil
+import numpy as np
+from matplotlib import pyplot as plt
+
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+from astropy.table import Table
+
+import matplotlib.path as mplPath
+import h5py    
+from astropy.io import fits
+import aplpy
+
+import requests
+from lxml.html import fromstring
+
+import ztfsub.utils
+
+def get_links():
+    links = []
+ 
+    url = "https://ztfweb.ipac.caltech.edu/ztf/archive/sci/2017/"
+    doc = fromstring(requests.get(url,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
+    doc.make_links_absolute(base_url=url)
+    for l in doc.iterlinks():
+        if not l[0].tag == 'a': continue
+        url2 = l[2]
+        doc2 = fromstring(requests.get(url2,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
+        doc2.make_links_absolute(base_url=url2)
+        for m in doc2.iterlinks():
+            if not m[0].tag == 'a': continue
+            url3 = m[2]
+            try:
+                doc3 = fromstring(requests.get(url3,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
+            except:
+                continue
+            doc3.make_links_absolute(base_url=url3)
+            for n in doc3.iterlinks():
+                url4 = n[2]
+                if not "sciimg.fits" in url4: continue
+                links.append(url4)
+    return links    
+
+linksFile = '%s/links_new.txt'%('../output')
+links = get_links()
+fid = open(linksFile,'w')
+for link in links:
+    fid.write("%s\n"%link)
+fid.close()
