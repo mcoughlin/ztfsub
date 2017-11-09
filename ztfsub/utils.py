@@ -4,6 +4,8 @@ import copy, os, shutil, glob, sys, string, re, math, operator, numpy, time
 #import pyfits
 from types import *
 
+import numpy as np
+
 from astropy.io import fits
 
 P60DISTORT = "P60distort.head"
@@ -15,7 +17,14 @@ def get_head(imagefile,keywords):
 
     hdulist=fits.open(imagefile)
     header = hdulist[0].header
-    return [float(header[key]) for key in keywords]
+    vals = []
+    for key in keywords:
+        try:
+            vals.append(float(header[key]))
+        except:
+            vals.append(header[key])
+    
+    return vals
 
 def p60hotpants(inlis, refimage, outimage, tu=50000, iu=50000, ig=2.3, tg=2.3,
                 stamps=None, nsx=4, nsy=4, ko=0, bgo=0, radius=10, 
@@ -27,11 +36,19 @@ def p60hotpants(inlis, refimage, outimage, tu=50000, iu=50000, ig=2.3, tg=2.3,
 
     subimages=[inlis]
 
+    hdulist=fits.open(refimage)
+    hdulist[0].data[np.isnan(hdulist[0].data)]=0.0
+    hdulist.writeto(refimage,clobber=True)
+
     for image in subimages:
 
+        hdulist=fits.open(image)
+        hdulist[0].data[np.isnan(hdulist[0].data)]=0.0
+        hdulist.writeto(image,clobber=True)
+
         root = image.split('.')[0]
-        #scmd="hotpants -inim %s -tmplim %s -outim %s -tu %.2f -tuk %.2f -iu %.2f -iuk %.2f -ig %.2f -tg %.2f -savexy %s.st -ko %i -bgo %i -nsx %i -nsy %i -r %i -rss %i -tl %f -il %f -ft %f -v 0 -c t -n i" % (image, refimage, outimage, tu, tu, iu, iu, ig, tg, root, ko, bgo, nsx, nsy, radius, radius*1.5, tlow, ilow, sthresh)
-        scmd="hotpants -inim %s -tmplim %s -outim %s" % (image, refimage, outimage)
+        scmd="hotpants -inim %s -tmplim %s -outim %s -tu %.2f -tuk %.2f -iu %.2f -iuk %.2f -ig %.2f -tg %.2f -savexy %s.st -ko %i -bgo %i -nsx %i -nsy %i -r %i -rss %i -tl %f -il %f -ft %f -v 0 -c t -n i" % (image, refimage, outimage, tu, tu, iu, iu, ig, tg, root, ko, bgo, nsx, nsy, radius, radius*1.5, tlow, ilow, sthresh)
+        #scmd="hotpants -inim %s -tmplim %s -outim %s" % (image, refimage, outimage)
         if not (stamps==None):
             scmd += " -ssf %s -afssc 0" % stamps 
         if (ng==None):
@@ -153,10 +170,15 @@ def p60sdsssub(inlis, refimage, ot, distortdeg=1, scthresh1=3.0,
     #    return 0
     #else:
     #    pix=get_head(refimage,'PIXSCALE')
+
     try:
         pix = get_head(refimage,['PIXSCALE'])[0]
     except:
-        pix=0.396
+        FILE0001 = get_head(refimage,['FILE0001'])[0]
+        if "ztf" in FILE0001:
+            pix = 1.0
+        else:
+            pix=0.396
 
     for image in images:
 
@@ -164,9 +186,9 @@ def p60sdsssub(inlis, refimage, ot, distortdeg=1, scthresh1=3.0,
 
         # Run scamp
         #p60scamp('%s.dist.fits' % root, refimage=refimage, 
-        p60scamp('%s.fits' % root, refimage=refimage, 
-                 distortdeg=distortdeg, scthresh1=scthresh1, 
-                 scthresh2=scthresh2,defaultsDir=defaultsDir)
+        #p60scamp('%s.fits' % root, refimage=refimage, 
+        #         distortdeg=distortdeg, scthresh1=scthresh1, 
+        #         scthresh2=scthresh2,defaultsDir=defaultsDir)
 
         # Run Swarp
         #p60swarp('%s.dist.fits' % root, '%s.shift.fits' % root, ractr=ractr, 
@@ -238,3 +260,41 @@ def p60scamp(inlis, refimage=None, distortdeg=3, scthresh1=5.0,
         scmd.readlines()
 
     print "Exiting successfully"
+
+def astrometrynet(imagefile):
+
+    os.system('solve-field --no-plots --overwrite %s' % (imagefile))
+    shutil.move(imagefile.replace(".fits",".new"), imagefile)
+
+def sextractor(imagefile,defaultsDir):
+
+    catfile = imagefile.replace(".fits",".cat")
+    cmd_sex = 'sex %s -c %s/default.sex -PARAMETERS_NAME %s/daofind.param -FILTER_NAME %s/default.conv'%(imagefile,defaultsDir,defaultsDir,defaultsDir)
+    os.system(cmd_sex)
+    mv_command = 'mv test.cat %s'%(catfile)
+    os.system(mv_command)
+
+def get_links():
+    links = []
+
+    url = "https://ztfweb.ipac.caltech.edu/ztf/archive/sci/2017/"
+    doc = fromstring(requests.get(url,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
+    doc.make_links_absolute(base_url=url)
+    for l in doc.iterlinks():
+        if not l[0].tag == 'a': continue
+        url2 = l[2]
+        doc2 = fromstring(requests.get(url2,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
+        doc2.make_links_absolute(base_url=url2)
+        for m in doc2.iterlinks():
+            if not m[0].tag == 'a': continue
+            url3 = m[2]
+            doc3 = fromstring(requests.get(url3,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
+            doc3.make_links_absolute(base_url=url3)
+            for n in doc3.iterlinks():
+
+                url4 = n[2]
+                if not "sciimg.fits" in url4: continue
+                links.append(url4)
+    return links
+
+
