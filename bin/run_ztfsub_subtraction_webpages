@@ -1,0 +1,186 @@
+
+import os, sys, optparse, glob
+import time
+
+def parse_commandline():
+    """
+    Parse the options given on the command-line.
+    """
+    parser = optparse.OptionParser()
+
+    parser.add_option("-o","--outputDir",default="../output")
+
+    opts, args = parser.parse_args()
+
+    return opts
+
+# Parse command line
+opts = parse_commandline()
+outputDir = opts.outputDir
+
+eventDirs = glob.glob("%s/*"%outputDir)
+
+websiteDir = "%s/website"%outputDir
+if not os.path.isdir(websiteDir):
+    os.makedirs(websiteDir)
+
+for eventDir in eventDirs:
+
+    if "links" in eventDir: continue
+    if "website" in eventDir: continue
+
+    eventDirSplit = eventDir.split("/")
+    eventSplit = eventDirSplit[-1].split("_") 
+    image = eventSplit[0]
+    if len(eventSplit) == 1:
+        ref = "SDSS"
+    else:
+        ref = eventSplit[1]
+
+    ############################## header ######################################
+    title = "%s: Reference %s"%(image,ref)
+
+    contents=["""
+    <html>
+    <head>
+    <meta content="text/html; charset=ISO-8859-1"
+    http-equiv="content-type">
+    <title>%s</title>
+    </head>
+    <body>
+    <table style="text-align: left; width: 1260px; height: 67px; margin-left:auto; margin-right: auto;" border="1" cellpadding="1" cellspacing="1">
+    <tbody>
+    <tr>
+    <td style="text-align: center; vertical-align: top; background-color:SpringGreen;"><big><big><big><big><span style="font-weight: bold;">%s</span></big></big></big></big>
+    </td>
+    </tr>
+    </tbody>
+    </table>
+    <br>
+    <br>
+
+    """%(title,title)]
+
+    table = ["""
+    <table style="text-align: center; width: 1260px; height: 67px; margin-left:auto; margin-right: auto;" border="1" cellpadding="1" cellspacing="1">
+    <tbody>
+    """]
+
+    table.append("""<tr><td>RA</td><td>Declination</td><td>Cutouts</td><td>Images</td></tr>""")
+    transientDirs = glob.glob("%s/*"%eventDir)
+    for transientDir in transientDirs:
+        pngfile = "%s/panels.png"%transientDir
+        if not os.path.isfile(pngfile): continue
+        transientDirSplit = transientDir.split("/")
+        radec = transientDirSplit[-1].split("_")
+        ragalaxy, decgalaxy = float(radec[0]), float(radec[1])
+
+        table.append("""
+            <tr>
+            <td style="vertical-align: top;">%.5f</td>
+            <td style="vertical-align: top;">%.5f</td>
+            <td style="vertical-align: top;">
+            <a href="./%s/sci.fits">Science<br>
+            <a href="./%s/ref.fits">Reference<br>
+            <a href="./%s/sci.sub.fits">Subtracted<br>
+            </td>
+            <td style="vertical-align: top;"><a href="./%s/panels.png"><img alt="" src="./%s/panels.png" style="border: 0px solid ; width: 900px; height: 300px;"></a><br></td>
+            </tr>
+            """%(ragalaxy, decgalaxy,transientDirSplit[-1],transientDirSplit[-1],transientDirSplit[-1],transientDirSplit[-1],transientDirSplit[-1]))
+    table.append("</tbody></table><br><br>")
+    # add tables and list
+    contents.append("".join(table))
+
+    ################################# closing ##################################
+    user=os.environ['USER']
+    curTime=time.strftime('%m-%d-%Y %H:%M:%S',time.localtime())
+    contents.append("""
+    <small>
+    This page was created by user %s on %s
+    </small>
+    </body>
+    </html>
+    """%(user,curTime))
+
+    page = ''.join(contents)
+
+    f = open(os.path.join(eventDir,"summary.html"),"w")
+    f.write(page)
+    f.close()
+
+############################## header ######################################
+title = "ZTF subtraction summary"
+   
+contents=["""
+<html>
+<head>
+<meta content="text/html; charset=ISO-8859-1"
+http-equiv="content-type">
+<title>%s</title>
+</head>
+<body>
+<table style="text-align: left; width: 1260px; height: 67px; margin-left:auto; margin-right: auto;" border="1" cellpadding="1" cellspacing="1">
+<tbody>
+<tr>
+<td style="text-align: center; vertical-align: top; background-color:SpringGreen;"><big><big><big><big><span style="font-weight: bold;">%s</span></big></big></big></big>
+</td>
+</tr>
+</tbody>
+</table>
+<br>
+<br>
+
+"""%(title,title)]
+
+table = ["""
+    <table style="text-align: center; width: 1260px; height: 67px; margin-left:auto; margin-right: auto;" border="1" cellpadding="1" cellspacing="1">
+    <tbody>
+"""]
+
+table.append("""<tr><td>Image</td><td>Reference</td><td>Link</td></tr>""")
+for eventDir in eventDirs:
+
+    if "links" in eventDir: continue
+    if "website" in eventDir: continue
+
+    eventDirSplit = eventDir.split("/")
+    eventSplit = eventDirSplit[-1].split("_")
+    image = eventSplit[0]
+    if len(eventSplit) == 1:
+        ref = "SDSS"
+    else:
+        ref = eventSplit[1] 
+
+    table.append("""
+            <tr>
+            <td style="vertical-align: top;">%s</td>
+            <td style="vertical-align: top;">%s</td>
+            <td style="vertical-align: top;">
+            <a href="../%s/summary.html">Summary Page<br>
+            </td>
+            </tr>
+            """%(image,ref,eventDirSplit[-1]))
+table.append("</tbody></table><br><br>")
+# add tables and list
+contents.append("".join(table))
+
+################################# closing ##################################
+user=os.environ['USER']
+curTime=time.strftime('%m-%d-%Y %H:%M:%S',time.localtime())
+contents.append("""
+<small>
+This page was created by user %s on %s
+</small>
+</body>
+</html>
+"""%(user,curTime))
+
+page = ''.join(contents)
+
+f = open(os.path.join(websiteDir,"summary.html"),"w")
+f.write(page)
+f.close()
+
+rsync_command = 'export RSYNC_RSH="gsissh"; rsync -arv /home/mcoughlin/ZTF/ztfsub/output/ atlas5.atlas.aei.uni-hannover.de:/home/mcoughlin/WWW/ZTF/'
+os.system(rsync_command) 
+

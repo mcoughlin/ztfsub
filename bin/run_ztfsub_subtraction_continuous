@@ -1,0 +1,192 @@
+
+import os, sys, optparse
+
+import numpy as np
+
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+
+from astroquery.vizier import Vizier
+
+from astropy.io import fits
+
+import requests
+from lxml.html import fromstring
+
+def parse_commandline():
+    """
+    Parse the options given on the command-line.
+    """
+    parser = optparse.OptionParser()
+
+    parser.add_option("--dataDir",default="../data")
+    parser.add_option("-r","--runDir",default="../runs")
+    parser.add_option("-i","--inputDir",default="../input")
+    parser.add_option("-o","--outputDir",default="../output")
+    parser.add_option("-d","--defaultsDir",default="../defaults")
+
+    opts, args = parser.parse_args()
+
+    return opts
+
+def get_links(images=[]):
+    links = []
+
+    url = "https://ztfweb.ipac.caltech.edu/ztf/archive/sci/2017/"
+    doc = fromstring(requests.get(url,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
+    doc.make_links_absolute(base_url=url)
+    for l in doc.iterlinks():
+        if not l[0].tag == 'a': continue
+        if "?" in l[2]: continue
+        if not url in l[2]: continue
+        url2 = l[2]
+        doc2 = fromstring(requests.get(url2,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
+        doc2.make_links_absolute(base_url=url2)
+        for m in doc2.iterlinks():
+            if not m[0].tag == 'a': continue
+            if "?" in m[2]: continue
+            if not url2 in m[2]: continue
+            url3 = m[2]
+            analyzed = False
+            for image in images:
+                if image in url3:
+                    analyzed = True
+            if not analyzed:
+                links.append(url3)
+    return links
+
+def get_fits(link):
+
+    links = []
+    doc3 = fromstring(requests.get(link,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
+    doc3.make_links_absolute(base_url=link)
+    for n in doc3.iterlinks():
+        url4 = n[2]
+        if not "sciimg.fits" in url4: continue
+        links.append(url4)
+    return links
+
+def get_most_recent_image():
+    if os.path.isfile(imagefile):
+        images = [line.rstrip('\n') for line in open(imagefile)]
+    else:
+        images = []
+    links = get_links(images=images)
+    link = links[-1]
+    linkSplit = link.split("/")
+    imagenum = linkSplit[-2]
+    images.append(imagenum)
+
+    fid = open(imagefile,'w')
+    for image in images:
+        fid.write("%s\n"%image)
+    fid.close()       
+
+    links = get_fits(link)
+    linkSplit = links[0].split("/")
+    imageSplit = linkSplit[-1].replace(".fits","").split("_")
+    fieldID = int(imageSplit[-6])
+
+    if len(links) == 0:
+        return 
+
+    raimages, decimages = [], []
+    for image in links:
+        imagefinal = '%s/%s'%(ztfDir,image.split("/")[-1])
+
+        if not os.path.isfile(imagefinal):
+            wget_command = "wget %s --user %s --password %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])
+            os.system(wget_command)
+            mv_command = 'mv %s %s'%(image.split("/")[-1],ztfDir)
+            os.system(mv_command)
+
+        hdulist=fits.open(imagefinal)
+        header = hdulist[0].header
+        raimage, decimage = float(header["CRVAL1"]), float(header["CRVAL2"])
+        raimages.append(raimage)
+        decimages.append(decimage)
+
+    #idx = np.where(fieldID == tiles[:,0])[0]
+    #tile = tiles[idx][0]
+    #fieldID, ra, dec = tile[0], tile[1], tile[2]
+
+    ramin, ramax = np.min(raimages), np.max(raimages)
+    decmin, decmax = np.min(decimages), np.max(decimages)
+    ra, dec = (ramin+ramax)/2, (decmin+decmax)/2
+    rawidth, decwidth = np.abs(ramin-ramax), np.abs(decmin-decmax)
+
+    result = Vizier.query_region(SkyCoord(ra=ra, dec=dec,
+                                     unit=(u.deg, u.deg),
+                                     frame='icrs'),
+                                     width=[rawidth*u.deg,decwidth*u.deg],
+                                     catalog=['VII/275'])
+    for table_name in result.keys():
+        table = result[table_name]
+        appMs = table["Bmag"] #+ (5*np.log10(table["Dist"]*1e6) - 5)
+        #idxs = np.argsort(appMs)
+
+        thresh = 16.0
+        idxs = np.where(appMs < thresh)[0]
+
+        for idx in zip(idxs):
+            ragalaxy, decgalaxy = table["RAJ2000"][idx], table["DEJ2000"][idx]
+
+            if len(data[fieldID]) == 1:
+                imagenum1 = int(imagenum)
+                system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d --ra %.5f --declination %.5f --image_size 200 --source sdss"%(imagenum1,ragalaxy, decgalaxy)
+            else:
+                imagenum1 = int(imagenum)
+                imagenum2 = data[fieldID][0]
+                system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d --imagenum2 %d --ra %.5f --declination %.5f --image_size 200"%(imagenum1,imagenum2,ragalaxy, decgalaxy)
+            os.system(system_command)
+
+# Parse command line
+opts = parse_commandline()
+inputDir = opts.inputDir
+outputDir = opts.outputDir
+defaultsDir = opts.defaultsDir
+dataDir = opts.dataDir
+runDir = opts.runDir
+
+tilesFile = '%s/ZTF_Fields.txt'%inputDir
+tiles = np.loadtxt(tilesFile,comments='%')
+
+linksFile = '%s/links.txt'%outputDir
+links = [line.rstrip('\n') for line in open(linksFile)]
+
+if not os.path.isdir(runDir):
+    os.makedirs(runDir)
+
+ztfDir = '%s/ztf'%dataDir
+if not os.path.isdir(ztfDir):
+    os.makedirs(ztfDir)
+
+images = []
+
+for link in links:
+    imagefile = link.split("/")[-1]
+    linkSplit = link.split("/")
+    imagenum = int(linkSplit[-2])
+    imageSplit = imagefile.replace(".fits","").split("_")
+    fieldID = int(imageSplit[-6])
+    
+    if fieldID > 10000: continue
+    
+    images.append([imagenum,fieldID])
+
+data = {}
+images = np.vstack({tuple(row) for row in images})
+for image in images:
+    imagenum,fieldID = image
+
+    if not fieldID in data:
+        data[fieldID] = []
+    data[fieldID].append(imagenum)
+
+imagefile = "%s/images.dat"%(runDir)
+runLoop = True
+while runLoop:
+    get_most_recent_image()
+
+    webpage_command = "python run_ztfsub_subtraction_webpages"
+    os.system(webpage_command)
