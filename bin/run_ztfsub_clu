@@ -1,0 +1,82 @@
+
+import os, sys, optparse, glob
+
+import numpy as np
+
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+
+from astroquery.vizier import Vizier
+
+from astropy.io import fits
+
+import ztfsub.utils
+
+def parse_commandline():
+    """
+    Parse the options given on the command-line.
+    """
+    parser = optparse.OptionParser()
+
+    parser.add_option("-f","--field",default="p3967")
+    parser.add_option("--dataDir",default="../data")
+    parser.add_option("-r","--runDir",default="../runs")
+    parser.add_option("-i","--inputDir",default="../input")
+    parser.add_option("-o","--outputDir",default="../output")
+    parser.add_option("-d","--defaultsDir",default="../defaults")
+
+    opts, args = parser.parse_args()
+
+    return opts
+
+# Parse command line
+opts = parse_commandline()
+inputDir = opts.inputDir
+outputDir = opts.outputDir
+defaultsDir = opts.defaultsDir
+dataDir = opts.dataDir
+runDir = opts.runDir
+
+images = glob.glob('%s/ptf/%s/*.fits'%(opts.dataDir,opts.field))
+raimages, decimages = [], []
+for image in images:
+    imagefile = image.split("/")[-1]
+    if "201603213319" in imagefile: continue
+
+    hdulist=fits.open(image)
+    header = hdulist[0].header
+    filt = header['FILTER']
+    raimage = float(header['CRVAL1'])
+    decimage = float(header['CRVAL2'])
+
+    raimages.append(raimage)
+    decimages.append(decimage)
+
+ramin, ramax = np.min(raimages), np.max(raimages)
+decmin, decmax = np.min(decimages), np.max(decimages)
+
+print ramin, ramax
+print decmin, decmax
+print stop
+
+datafile = "%s/clu/u3967_allsrcs_raw.fits"%opts.dataDir
+hdulist=fits.open(datafile)
+header = hdulist[1].header
+data = hdulist[1].data
+
+for row in data:
+    ragalaxy, decgalaxy = row[6], row[7]
+    ha1mag, ha1magerr, ha1mag, ha1magerr, ha1mag, ha1magerr, ha1mag, ha1magerr =        row[16], row[17], row[18], row[19], row[20], row[21], row[21], row[22]
+    csig1, csig2, csig3, csig4 = row[110], row[111], row[112], row[113]
+
+    if not ((ragalaxy > ramin-0.1) and (ragalaxy < ramax+0.1)): continue
+    if not ((decgalaxy > decmin-0.1) and (decgalaxy < decmax+0.1)): continue
+
+    maxcsig = np.max([csig1, csig2, csig3, csig4])
+    if maxcsig < 5: continue
+
+    system_command = "python ztfsub_clu --doPlots --field %s --ra %.5f --declination %.5f --image_size 200"%(opts.field,ragalaxy, decgalaxy)
+    os.system(system_command)
+
+    #print system_command
+    #print stop

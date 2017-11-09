@@ -1,6 +1,7 @@
 
 import os, sys, optparse, glob
 import time
+import numpy as np
 
 def parse_commandline():
     """
@@ -9,6 +10,9 @@ def parse_commandline():
     parser = optparse.OptionParser()
 
     parser.add_option("-o","--outputDir",default="../output")
+    parser.add_option("-c","--combinedDir",default="../combined")
+    parser.add_option("--doCopy",  action="store_true", default=False)
+    parser.add_option("--doCombine",  action="store_true", default=False)
 
     opts, args = parser.parse_args()
 
@@ -17,6 +21,24 @@ def parse_commandline():
 # Parse command line
 opts = parse_commandline()
 outputDir = opts.outputDir
+combinedDir = opts.combinedDir
+
+linksFile = '%s/links.txt'%outputDir
+links = [line.rstrip('\n') for line in open(linksFile)]
+
+images = []
+
+for link in links:
+    imagefile = link.split("/")[-1]
+    linkSplit = link.split("/")
+    imagenum = int(linkSplit[-2])
+    imageSplit = imagefile.replace(".fits","").split("_")
+    fieldID = int(imageSplit[-6])
+
+    if fieldID > 10000: continue
+
+    baselink = "/".join(link.split("/")[:-1]) + "/"
+    images.append([imagenum,fieldID,baselink])
 
 eventDirs = glob.glob("%s/*"%outputDir)
 
@@ -24,14 +46,20 @@ websiteDir = "%s/website"%outputDir
 if not os.path.isdir(websiteDir):
     os.makedirs(websiteDir)
 
+if not os.path.isdir(combinedDir):
+    os.makedirs(combinedDir)
+
+eventDirTransients = []
 for eventDir in eventDirs:
 
     if "links" in eventDir: continue
     if "website" in eventDir: continue
+    if "ZTF" in eventDir: continue
 
     eventDirSplit = eventDir.split("/")
     eventSplit = eventDirSplit[-1].split("_") 
     image = eventSplit[0]
+
     if len(eventSplit) == 1:
         ref = "SDSS"
     else:
@@ -68,10 +96,18 @@ for eventDir in eventDirs:
 
     table.append("""<tr><td>RA</td><td>Declination</td><td>Cutouts</td><td>Images</td></tr>""")
     transientDirs = glob.glob("%s/*"%eventDir)
+    numtransients = 0
     for transientDir in transientDirs:
         pngfile = "%s/panels.png"%transientDir
         if not os.path.isfile(pngfile): continue
         transientDirSplit = transientDir.split("/")
+
+        if opts.doCombine:
+            transientfile = "%s/%s_%s.png"%(combinedDir,transientDirSplit[-2],transientDirSplit[-1])
+            if not os.path.isfile(transientfile):
+                cp_command = "cp %s %s"%(pngfile,transientfile)
+                os.system(cp_command)
+
         radec = transientDirSplit[-1].split("_")
         ragalaxy, decgalaxy = float(radec[0]), float(radec[1])
 
@@ -87,6 +123,11 @@ for eventDir in eventDirs:
             <td style="vertical-align: top;"><a href="./%s/panels.png"><img alt="" src="./%s/panels.png" style="border: 0px solid ; width: 900px; height: 300px;"></a><br></td>
             </tr>
             """%(ragalaxy, decgalaxy,transientDirSplit[-1],transientDirSplit[-1],transientDirSplit[-1],transientDirSplit[-1],transientDirSplit[-1]))
+        numtransients = numtransients + 1
+
+    if numtransients > 0:
+        eventDirTransients.append(eventDir)
+
     table.append("</tbody></table><br><br>")
     # add tables and list
     contents.append("".join(table))
@@ -137,8 +178,8 @@ table = ["""
     <tbody>
 """]
 
-table.append("""<tr><td>Image</td><td>Reference</td><td>Link</td></tr>""")
-for eventDir in eventDirs:
+table.append("""<tr><td>Field ID</td><td>Image</td><td>Reference</td><td>Link</td></tr>""")
+for eventDir in eventDirTransients:
 
     if "links" in eventDir: continue
     if "website" in eventDir: continue
@@ -146,6 +187,10 @@ for eventDir in eventDirs:
     eventDirSplit = eventDir.split("/")
     eventSplit = eventDirSplit[-1].split("_")
     image = eventSplit[0]
+
+    idx = np.where(np.array(images)[:,0].astype(int) == int(image))[0]
+    fieldID = int(np.array(images)[idx,1][0])
+
     if len(eventSplit) == 1:
         ref = "SDSS"
     else:
@@ -153,13 +198,14 @@ for eventDir in eventDirs:
 
     table.append("""
             <tr>
+            <td style="vertical-align: top;">%d</td>
             <td style="vertical-align: top;">%s</td>
             <td style="vertical-align: top;">%s</td>
             <td style="vertical-align: top;">
             <a href="../%s/summary.html">Summary Page<br>
             </td>
             </tr>
-            """%(image,ref,eventDirSplit[-1]))
+            """%(fieldID,image,ref,eventDirSplit[-1]))
 table.append("</tbody></table><br><br>")
 # add tables and list
 contents.append("".join(table))
@@ -181,6 +227,10 @@ f = open(os.path.join(websiteDir,"summary.html"),"w")
 f.write(page)
 f.close()
 
-rsync_command = 'export RSYNC_RSH="gsissh"; rsync -arv /home/mcoughlin/ZTF/ztfsub/output/ atlas5.atlas.aei.uni-hannover.de:/home/mcoughlin/WWW/ZTF/'
-os.system(rsync_command) 
+if opts.doCopy:
+    rsync_command = 'export RSYNC_RSH="gsissh"; rsync -arv /home/mcoughlin/ZTF/ztfsub/output/ atlas5.atlas.aei.uni-hannover.de:/home/mcoughlin/WWW/ZTF/'
+    os.system(rsync_command) 
 
+if opts.doCombine:
+    tar_command = "cd ../; tar -cvzf combined.tar.gz combined"
+    os.system(tar_command)

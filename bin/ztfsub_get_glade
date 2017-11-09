@@ -1,4 +1,5 @@
 
+import os, sys, optparse
 import numpy as np
 
 import astropy.units as u
@@ -10,31 +11,27 @@ from astroquery.vizier import Vizier
 #catalog_list = Vizier.find_catalogs('GLADE')
 #cat, = Vizier.get_catalogs('VII/275')
 
-inputDir = "../input"
-tilesFile = '%s/ZTF_Fields.txt'%inputDir
-tiles = np.loadtxt(tilesFile,comments='%')
+def parse_commandline():
+    """
+    Parse the options given on the command-line.
+    """
+    parser = optparse.OptionParser()
 
-doGetTiles = False
-ztffieldsfile = "ZTF_Fields_galaxy.txt"
-if doGetTiles:
-    fid = open(ztffieldsfile,'w')
-    tiledata = {}
-    for tile in tiles:
-        fieldID, ra, dec = tile[0], tile[1], tile[2]
-        result = Vizier.query_region(coord.SkyCoord(ra=ra, dec=dec,
-                                     unit=(u.deg, u.deg),
-                                     frame='icrs'),
-                                     width=[1.0*u.deg,1.0*u.deg],
-                                     catalog=['VII/275'])
-        for table_name in result.keys():
-            table = result[table_name]
-            appM = table["Bmag"] - (5*np.log10(table["Dist"]*1e6) - 5)
-            idx = np.nanargmin(appM)
-            fid.write("%d %.5f %.5f %.5f\n"%(fieldID,table["Bmag"][idx],table["Dist"][idx],appM[idx]))
-    fid.close()
-ztffields = np.loadtxt(ztffieldsfile)
+    parser.add_option("-i","--inputDir",default="../input")
+    parser.add_option("-o","--outputDir",default="../output")
 
-outputDir = "../output"
+    parser.add_option("--doGetTiles",  action="store_true", default=False)
+
+    opts, args = parser.parse_args()
+
+    return opts
+
+# Parse command line
+opts = parse_commandline()
+
+inputDir = opts.inputDir
+outputDir = opts.outputDir
+
 linksFile = '%s/links.txt'%outputDir
 links = [line.rstrip('\n') for line in open(linksFile)]
 
@@ -42,32 +39,54 @@ fieldIDs = []
 for link in links:
     imagefile = link.split("/")[-1]
     linkSplit = link.split("/")
+    imagenum = int(linkSplit[-2])
     imageSplit = imagefile.replace(".fits","").split("_")
- 
     fieldID = int(imageSplit[-6])
 
-    if fieldID > 900000: continue
+    if fieldID > 10000: continue
 
-    filt = imageSplit[-5]
+    baselink = "/".join(link.split("/")[:-1]) + "/"
     fieldIDs.append(fieldID)
 
-orders = []
-fieldIDs = np.unique(fieldIDs)
-for fieldID in fieldIDs:
-    idx = np.where(ztffields[:,0]==fieldID)[0]
-    if not idx: continue
-    ztffield = ztffields[idx,:][0]
-    orders.append(ztffield[1])    
+fieldIDs = list(set(fieldIDs))
 
-filename = "order.txt"
-fid = open(filename,'w')
+tilesFile = '%s/ZTF_Fields.txt'%inputDir
+tiles = np.loadtxt(tilesFile,comments='%')
 
-idx = np.argsort(orders)
-fieldIDs = fieldIDs[idx]
-orders = np.array(orders)[idx]
+ztffieldsfile = "%s/ZTF_Fields_galaxies.txt"%opts.outputDir
+if opts.doGetTiles:
+    fid = open(ztffieldsfile,'w')
+    tiledata = {}
+    for tile in tiles:
+        fieldID, ra, dec = tile[0], tile[1], tile[2]
+        if not fieldID in fieldIDs: continue
 
-for fieldID, order in zip(fieldIDs,orders):
-    fid.write("%d %.5f\n"%(fieldID, order))
+        print fieldID
+        result = Vizier.query_region(coord.SkyCoord(ra=ra, dec=dec,
+                                     unit=(u.deg, u.deg),
+                                     frame='icrs'),
+                                     width=[2.0*u.deg,2.0*u.deg],
+                                     catalog=['VII/275'])
+        for table_name in result.keys():
+            table = result[table_name]
+            appMs = table["Bmag"] # - (5*np.log10(table["Dist"]*1e6) - 5)
 
-fid.close()
+            thresh = 15.5
+            idxs = np.where(appMs < thresh)[0]
+
+            fid.write("%d %d\n"%(fieldID,len(idxs)))
+    fid.close()
+
+ztffields = np.loadtxt(ztffieldsfile)
+idx = np.argmax(ztffields[:,1])
+fieldID = ztffields[idx,0]
+numgalaxies = ztffields[idx,1]
+
+idx = np.where(fieldID == tiles[:,0])[0]
+
+print "Tile ID: %d"%fieldID
+print "RA: %.5f"%(tiles[idx,1])
+print "Declination: %.5f"%(tiles[idx,2])
+print "Number of galaxies: %d"%(numgalaxies)
+
 

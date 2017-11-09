@@ -1,5 +1,5 @@
 
-import os, sys
+import os, sys, optparse
 
 import numpy as np
 
@@ -10,11 +10,44 @@ from astroquery.vizier import Vizier
 
 from astropy.io import fits
 
-inputDir = "../input"
+import ztfsub.utils
+
+def parse_commandline():
+    """
+    Parse the options given on the command-line.
+    """
+    parser = optparse.OptionParser()
+
+    parser.add_option("--dataDir",default="../data")
+    parser.add_option("-r","--runDir",default="../runs")
+    parser.add_option("-i","--inputDir",default="../input")
+    parser.add_option("-o","--outputDir",default="../output")
+    parser.add_option("-d","--defaultsDir",default="../defaults")
+
+    parser.add_option("--imagenum",default=None,type=int)
+    parser.add_option("--fieldID",default=None,type=int)
+    
+    parser.add_option("--doCopy",  action="store_true", default=False)
+
+    opts, args = parser.parse_args()
+
+    return opts
+
+# Parse command line
+opts = parse_commandline()
+inputDir = opts.inputDir
+outputDir = opts.outputDir
+defaultsDir = opts.defaultsDir
+dataDir = opts.dataDir
+runDir = opts.runDir
+
+ztfDir = '%s/ztf'%dataDir
+if not os.path.isdir(ztfDir):
+    os.makedirs(ztfDir)
+
 tilesFile = '%s/ZTF_Fields.txt'%inputDir
 tiles = np.loadtxt(tilesFile,comments='%')
 
-outputDir = "../output"
 linksFile = '%s/links.txt'%outputDir
 links = [line.rstrip('\n') for line in open(linksFile)]
 
@@ -29,48 +62,94 @@ for link in links:
 
     if fieldID > 10000: continue
 
-    images.append([imagenum,fieldID])
+    baselink = "/".join(link.split("/")[:-1]) + "/"
+    images.append([imagenum,fieldID,baselink])
 
 data = {}
 images = np.vstack({tuple(row) for row in images})
 for image in images:
-    imagenum,fieldID = image
+    imagenum,fieldID,baselink = image
 
     if not fieldID in data:
         data[fieldID] = []
     data[fieldID].append(imagenum)
 
 for fieldID in data.iterkeys():
-    if len(data[fieldID]) == 1: continue
 
-    idx = np.where(fieldID == tiles[:,0])[0]
-    tile = tiles[idx][0]
-    fieldID, ra, dec = tile[0], tile[1], tile[2]
-    ra = ra-4.0
+    for imagenum in data[fieldID]:
 
-    result = Vizier.query_region(SkyCoord(ra=ra, dec=dec,
+        if not opts.fieldID == None:
+            if not opts.fieldID == int(fieldID): 
+                continue
+        if not opts.imagenum == None:
+            if not opts.imagenum == int(imagenum): 
+                continue 
+
+        print fieldID, imagenum
+
+        idx = np.where(np.array(images[:,0]).astype(int) == int(imagenum))[0]
+        link = images[idx,2][0]
+        links = ztfsub.utils.get_fits_from_link(link)
+
+        raimages, decimages = [], []
+        for image in links:
+            imagefinal = '%s/%s'%(ztfDir,image.split("/")[-1])
+
+            if not os.path.isfile(imagefinal):
+                wget_command = "wget %s --user %s --password %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])
+                os.system(wget_command)
+                mv_command = 'mv %s %s'%(image.split("/")[-1],ztfDir)
+                os.system(mv_command)
+
+            if not os.path.isfile(imagefinal): continue
+
+            hdulist=fits.open(imagefinal)
+            header = hdulist[0].header
+            raimage, decimage = float(header["CRVAL1"]), float(header["CRVAL2"])
+            raimages.append(raimage)
+            decimages.append(decimage)
+
+        #idx = np.where(fieldID == tiles[:,0])[0]
+        #tile = tiles[idx][0]
+        #fieldID, ra, dec = tile[0], tile[1], tile[2]
+
+        ramin, ramax = np.min(raimages), np.max(raimages)
+        decmin, decmax = np.min(decimages), np.max(decimages)
+        ra, dec = (ramin+ramax)/2, (decmin+decmax)/2
+        rawidth, decwidth = np.abs(ramin-ramax), np.abs(decmin-decmax)
+  
+        result = Vizier.query_region(SkyCoord(ra=ra, dec=dec,
                                      unit=(u.deg, u.deg),
                                      frame='icrs'),
-                                     width=[1*u.deg,1*u.deg],
+                                     width=[rawidth*u.deg,decwidth*u.deg],
                                      catalog=['VII/275'])
-    for table_name in result.keys():
-        table = result[table_name]
-        appM = table["Bmag"] - (5*np.log10(table["Dist"]*1e6) - 5)
-        idxs = np.argsort(appM)
 
-        for idx in idxs:
-            ragalaxy, decgalaxy = table["RAJ2000"][idx], table["DEJ2000"][idx]
-            imagenum1 = data[fieldID][0]
-            imagenum2 = data[fieldID][-1]
+        for table_name in result.keys():
+            table = result[table_name]
+            appMs = table["Bmag"] # - (5*np.log10(table["Dist"]*1e6) - 5)
 
-            system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d --imagenum2 %d --ra %.5f --declination %.5f --image_size 200"%(imagenum1,imagenum2,ragalaxy, decgalaxy)
-            os.system(system_command)
+            thresh = 15.5
+            idxs = np.where(appMs < thresh)[0]
 
-            outDir = "../output/%d_%d/%.5f_%.5f"%(int(imagenum1),int(imagenum2),ragalaxy,decgalaxy)
-            outfile = "%s/panels.pdf"%outDir
-            if not os.path.isfile(outfile):
-                rm_command = "rm -rf %s"%outDir
-                os.system(rm_command)
+            for idx in idxs:
+                ragalaxy, decgalaxy = table["RAJ2000"][idx], table["DEJ2000"][idx]
 
-            print system_command
+                if (len(data[fieldID]) == 1) or (int(imagenum) == int(data[fieldID][0])):
+                    imagenum1 = int(imagenum)
+
+                    path_out_dir='%s/%d/%.5f_%.5f'%(outputDir,imagenum1,ragalaxy,decgalaxy)
+                    if os.path.isdir(path_out_dir): continue
+
+                    system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d --ra %.5f --declination %.5f --image_size 200 --source sdss"%(imagenum1,ragalaxy, decgalaxy)
+                else:
+                    imagenum1 = int(imagenum)
+                    imagenum2 = int(data[fieldID][0])
+
+                    path_out_dir='%s/%d_%d/%.5f_%.5f'%(outputDir,imagenum1,imagenum2,ragalaxy,decgalaxy)
+                    if os.path.isdir(path_out_dir): continue
+
+                    system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d --imagenum2 %d --ra %.5f --declination %.5f --image_size 200"%(imagenum1,imagenum2,ragalaxy, decgalaxy)
+                os.system(system_command)
+
+                
 

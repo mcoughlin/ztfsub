@@ -14,7 +14,10 @@ import matplotlib.path as mplPath
 import h5py    
 from astropy.io import fits
 
-import ztfsub.utils
+import aplpy
+
+import ztfsub.utils, ztfsub.surveys
+import ztfsub.plotting
 
 def parse_commandline():
     """
@@ -23,202 +26,130 @@ def parse_commandline():
     parser = optparse.OptionParser()
 
     parser.add_option("--dataDir",default="../data")
-    parser.add_option("-o","--outputDir",default="../output")
+    parser.add_option("-t","--tmpDir",default="/tmp")
+    parser.add_option("-o","--outputDir",default="../output_clu")
     parser.add_option("-d","--defaultsDir",default="../defaults")
+    parser.add_option("--ra",default=None,type=float)
+    parser.add_option("--declination",default=None,type=float)
     parser.add_option("--field",default="p3967")
-    parser.add_option("--ccdnumber",default="c01")
+    parser.add_option("--image_size",default=1000,type=int)
     parser.add_option("--doPlots",  action="store_true", default=False)
 
     opts, args = parser.parse_args()
 
     return opts
 
-def combine_images(data,ra,dec):
-
-    for filt in data.iterkeys():
-        fitsfile = '%s/ref_%s_refimg.fits'%(path_out_refs,filt)
-        catfile = '%s/ref_%s_refimg.cat'%(path_out_refs,filt)
-    
-        if os.path.isfile(fitsfile): continue
-    
-        fid = open('ref_%s_list.txt'%filt,'w')
-        for filename in data[filt]["files"]:
-            fid.write('%s\n'%filename)
-        fid.close()
-    
-        ra = np.mean(data[filt]["ras"])
-        dec = np.mean(data[filt]["decs"])
-    
-        swarp_command = 'swarp @ref_%s_list.txt -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE 1000,1000'%(filt,defaultsDir,ra,dec)
-        os.system(swarp_command)
-    
-        rm_command = "rm ref_%s_list.txt swarp.xml coadd.weight.fits"%filt
-        os.system(rm_command)
-    
-        mv_command = 'mv coadd.fits %s'%(fitsfile)
-        os.system(mv_command)
-    
-        #cmd_sex = 'sex %s -c %s/withPS1.sex'%(fitsfile,defaultsDir)
-        cmd_sex = 'sex %s -c %s/default.sex'%(fitsfile,defaultsDir)
-        os.system(cmd_sex)
-        mv_command = 'mv test.cat %s'%(catfile)
-        os.system(mv_command)
-
 # Parse command line
 opts = parse_commandline()
 field = opts.field
-ccdnumber = opts.ccdnumber
 dataDir = opts.dataDir
 outputDir = opts.outputDir
 defaultsDir = opts.defaultsDir
 
-images = glob.glob('%s/%s/*.fits'%(dataDir,field))
+if not opts.ra == None:
+    path_out_dir='%s/%s/%.5f_%.5f'%(outputDir,opts.field,opts.ra,opts.declination)
+else:
+    path_out_dir='%s/%s'%(outputDir,opts.field)
+if not os.path.isdir(path_out_dir):
+    os.makedirs(path_out_dir)
 
-ras, decs = [], []
-data = {}
-for image in images:
-    imagefile = image.split("/")[-1]
-    if "201603213319" in imagefile: continue
+path_out_pairs='%s/pairs'%path_out_dir
+path_out_refs='%s/refs'%path_out_dir
+if not os.path.isdir(path_out_refs):
+    os.makedirs(path_out_refs)
+if not os.path.isdir(path_out_pairs):
+    os.makedirs(path_out_pairs)
 
-    hdulist=fits.open(image)
-    header = hdulist[0].header
-    filt = header['FILTER']
-    ra = float(header['CRVAL1'])
-    dec = float(header['CRVAL2'])
+imagefiles = ztfsub.surveys.get_ptf(opts,path_out_refs)
 
-    if not filt in data:
-        data[filt] = {}
-        data[filt]["files"] = []
-        data[filt]["ras"] = []
-        data[filt]["decs"] = []
+filts = imagefiles.keys()
+for ii in xrange(len(filts)):
+    for jj in xrange(len(filts)):
+        filt1, filt2 = filts[ii], filts[jj]
 
-    data[filt]["files"].append(image)
-    data[filt]["ras"].append(ra)
-    data[filt]["decs"].append(dec)
+        if not ((filt1 == "681" and filt2 == "Ha672") or (filt1 == "Ha672" and filt2 == "Ha681") or (filt1 == "Ha663" and filt2 == "Ha656") or (filt1 == "Ha656" and filt2 == "Ha663")): continue
 
-    ras.append(ra)
-    decs.append(dec)
+        path_out_pair='%s/%s_%s'%(path_out_pairs,filt1,filt2)
+        if not os.path.isdir(path_out_pair):
+            os.makedirs(path_out_pair)
 
-ras = np.arange(np.min(ras)-0.1,np.max(ras)+0.15,0.05)
-decs = np.arange(np.min(decs)-0.1,np.max(decs)+0.15,0.05)
-#ras, decs = [ra], [dec]
+        scienceimage = '%s/sci.fits'%(path_out_pair)
+        refimage = '%s/ref.fits'%(path_out_pair)
+        cp_command = "cp %s %s"%(imagefiles[filt1],scienceimage)
+        os.system(cp_command)
+        cp_command = "cp %s %s"%(imagefiles[filt2],refimage)
+        os.system(cp_command)
 
-for rr in xrange(len(ras)):
-    for dd in xrange(len(decs)):
-        path_out_dir='%s/%s/%.5f_%.5f'%(outputDir,field,ras[rr],decs[dd])
-        path_out_pairs='%s/pairs'%path_out_dir
-        path_out_refs='%s/refs'%path_out_dir
-        if not os.path.isdir(path_out_refs):
-           os.makedirs(path_out_refs)
-        if not os.path.isdir(path_out_pairs):
-           os.makedirs(path_out_pairs)
+        hdulist=fits.open(scienceimage)
+        header = hdulist[0].header
+        if not opts.ra == None:
+            ra = opts.ra
+        else:
+            ra = float(header["CRVAL1"])
+        if not opts.declination == None:
+            dec = opts.declination
+        else:
+            dec = float(header["CRVAL2"])
 
-        combine_images(data,ras[rr],decs[dd])
+        if opts.doPlots:
+            plotName = os.path.join(path_out_pair,'sci.pdf')
+            ztfsub.plotting.plot_image(scienceimage,plotName)
+            plotName = os.path.join(path_out_pair,'ref.pdf')
+            ztfsub.plotting.plot_image(refimage,plotName)
+        
+        ztfsub.utils.sextractor(scienceimage,defaultsDir)
+        ztfsub.utils.sextractor(refimage,defaultsDir)
 
-        filts = data.keys()
-        for ii in xrange(len(filts)):
-            for jj in xrange(len(filts)):
-                #if ii >= jj: continue
-                if ii == jj: continue
-                if not ((ii == 0 and jj == 1) or (ii == 1 and jj == 0) or (ii == 2 and jj == 3) or (ii == 3 and jj == 2)): continue
+        ztfsub.utils.p60sdsssub(scienceimage, refimage, [ra,dec], 
+               distortdeg=1, scthresh1=3.0,
+               scthresh2=10.0, tu=50000, iu=50000, ig=2.3, tg=1.0,
+               stamps=None, nsx=4, nsy=4, ko=0, bgo=0, radius=10,
+               tlow=0.0, ilow=0.0, sthresh=5.0, ng=None, aperture=10.0,
+               defaultsDir=defaultsDir)
 
-                filt1, filt2 = filts[ii], filts[jj]
+        scienceimageshift = scienceimage.replace(".fits",".shift.fits")
+        ztfsub.utils.sextractor(scienceimageshift,defaultsDir)
 
-                fitsfile1 = '%s/ref_%s_refimg.fits'%(path_out_refs,filt1)
-                fitsfile2 = '%s/ref_%s_refimg.fits'%(path_out_refs,filt2)
+        imagesub = scienceimage.replace(".fits",".sub.fits")
+        imagesubcat = imagesub.replace(".fits",".cat")
+        ztfsub.utils.sextractor(imagesub,defaultsDir)
 
-                path_out_pair='%s/%s_%s'%(path_out_pairs,filt1,filt2)
-                if not os.path.isdir(path_out_pair):
-                    os.makedirs(path_out_pair)
-
-                imagefile1 = '%s/image1.fits'%(path_out_pair)
-                imagefile2 = '%s/image2.fits'%(path_out_pair)
-                cp_command = "cp %s %s"%(fitsfile1,imagefile1)
-                os.system(cp_command)
-                cp_command = "cp %s %s"%(fitsfile2,imagefile2)
-                os.system(cp_command)
-
-                catfile1 = '%s/image1.cat'%(path_out_pair)
-                catfile2 = '%s/image2.cat'%(path_out_pair) 
-
-                cmd_sex = 'sex %s -c %s/default.sex -PARAMETERS_NAME %s/daofind.param -FILTER_NAME %s/default.conv'%(imagefile1,defaultsDir,defaultsDir,defaultsDir)
-                os.system(cmd_sex)
-                mv_command = 'mv test.cat %s'%(catfile1)
-                os.system(mv_command)
-
-                cmd_sex = 'sex %s -c %s/default.sex -PARAMETERS_NAME %s/daofind.param -FILTER_NAME %s/default.conv'%(imagefile2,defaultsDir,defaultsDir,defaultsDir)
-                os.system(cmd_sex)
-                mv_command = 'mv test.cat %s'%(catfile2)
-                os.system(mv_command)
-
-                ztfsub.utils.p60sdsssub(imagefile1, imagefile2, [ra,dec], 
-                       distortdeg=1, scthresh1=3.0,
-                       scthresh2=10.0, tu=50000, iu=50000, ig=2.3, tg=1.0,
-                       stamps=None, nsx=4, nsy=4, ko=0, bgo=0, radius=10,
-                       tlow=0.0, ilow=0.0, sthresh=5.0, ng=None, aperture=10.0,
-                       defaultsDir=defaultsDir)
-
-                fitsfilesub = imagefile1.replace(".fits",".sub.fits")
-                catfilesub = imagefile1.replace(".fits",".sub.cat")
-
-                cmd_sex = 'sex %s -c %s/default.sex -PARAMETERS_NAME %s/daofind.param -FILTER_NAME %s/default.conv'%(fitsfilesub,defaultsDir,defaultsDir,defaultsDir) 
-                os.system(cmd_sex)
-                mv_command = 'mv test.cat %s'%(catfilesub)
-                os.system(mv_command)
-
-                if opts.doPlots:
-                    cat1 = np.loadtxt(catfile1)
-                    cat2 = np.loadtxt(catfile2)
-                    catsub = np.loadtxt(catfilesub)
+        if opts.doPlots:
+            #cat1 = np.loadtxt(catfile1)
+            #cat2 = np.loadtxt(catfile2)
+            #catsub = np.loadtxt(catfilesub)
      
-                    #thresh = -8
-                    #cat1 = cat1[cat1[:,2]<thresh,:]
-                    #cat2 = cat2[cat2[:,2]<thresh,:]
-                    #catsub = catsub[catsub[:,2]<thresh,:]
+            #thresh = -8
+            #cat1 = cat1[cat1[:,2]<thresh,:]
+            #cat2 = cat2[cat2[:,2]<thresh,:]
+            #catsub = catsub[catsub[:,2]<thresh,:]
     
-                    hdulist=fits.open(imagefile1)
-                    image1=hdulist[0].data
-                    hdulist=fits.open(imagefile2)
-                    image2=hdulist[0].data
-                    hdulist=fits.open(fitsfilesub)
-                    imagesub=hdulist[0].data
-    
-                    angles = np.linspace(0,2*np.pi,100)
-    
-                    vmin = np.nanmin(image1)
-                    vmax = np.nanmax(image1)
-                    vmin = 75.0
-                    vmax = 125.0
-                    ymax,xmax = image1.shape
-                    plt.figure()
-                    plt.imshow(image1,vmin=vmin,vmax=vmax,cmap='Greys_r', origin='lower')
-                    for x, y, fwhm in zip(cat1[:,0],cat1[:,1],cat1[:,5]):
-                        plt.plot(x+np.cos(angles)*fwhm,y+np.sin(angles)*fwhm,'r-')
-                    plt.xlim([0,xmax])
-                    plt.ylim([0,ymax])
-                    plotName = os.path.join(path_out_pair,'image1.pdf')
-                    plt.savefig(plotName)
-                    plt.close()
-    
-                    plt.figure()
-                    plt.imshow(image2,vmin=vmin,vmax=vmax,cmap='Greys_r', origin='lower')
-                    for x, y, fwhm in zip(cat2[:,0],cat2[:,1],cat2[:,5]):
-                        plt.plot(x+np.cos(angles)*fwhm,y+np.sin(angles)*fwhm,'r-')
-                    plt.xlim([0,xmax])
-                    plt.ylim([0,ymax])
-                    plotName = os.path.join(path_out_pair,'image2.pdf')
-                    plt.savefig(plotName)
-                    plt.close()
-    
-                    vmin = -0.1
-                    vmax = 0.1
-                    plt.figure()
-                    plt.imshow(imagesub,vmin=vmin,vmax=vmax,cmap='Greys_r', origin='lower')
-                    for x, y, fwhm in zip(catsub[:,0],catsub[:,1],catsub[:,5]):
-                        plt.plot(x+np.cos(angles)*fwhm,y+np.sin(angles)*fwhm,'r-')
-                    plt.xlim([0,xmax])
-                    plt.ylim([0,ymax])
-                    plotName = os.path.join(path_out_pair,'imagesub.pdf')
-                    plt.savefig(plotName)
-                    plt.close()
-    
+            plotName = os.path.join(path_out_pair,'scishift.pdf')
+            ztfsub.plotting.plot_image(scienceimageshift,plotName)
+
+            fig = plt.figure(figsize=(12,4))
+            f1 = aplpy.FITSFigure(scienceimageshift,figure=fig,subplot=[0.1,0.1,0.25,0.8])
+            f1.set_tick_labels_font(size='x-small')
+            f1.set_axis_labels_font(size='small')
+            f1.show_grayscale()
+            #f1.show_circles(cat1[:,3],cat1[:,4],1,zorder=0)
+            f2 = aplpy.FITSFigure(refimage, figure=fig, subplot=[0.4,0.1,0.25,0.8])
+            f2.set_tick_labels_font(size='x-small')
+            f2.set_axis_labels_font(size='small')
+            f2.show_grayscale()
+            f2.hide_yaxis_label()
+            f2.hide_ytick_labels()
+            #f2.show_circles(cat2[:,3],cat2[:,4],cat2[:,6])
+            f3 = aplpy.FITSFigure(imagesub, figure=fig, subplot=[0.7,0.1,0.25,0.8])
+            f3.set_tick_labels_font(size='x-small')
+            f3.set_axis_labels_font(size='small')
+            f3.show_grayscale()
+            f3.hide_yaxis_label()
+            f3.hide_ytick_labels()
+            #f3.show_circles(catsub[:,3],catsub[:,4],catsub[:,6])
+            fig.canvas.draw()
+            plotName = os.path.join(path_out_pair,'panels.pdf')
+            plt.savefig(plotName)
+            plotName = os.path.join(path_out_pair,'panels.png')
+            plt.savefig(plotName)
+            plt.close() 

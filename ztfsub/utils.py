@@ -303,4 +303,14 @@ def get_links():
                 links.append(url4)
     return links
 
+def get_fits_from_link(link):
 
+    links = []
+    doc3 = fromstring(requests.get(link,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
+    doc3.make_links_absolute(base_url=link)
+    for n in doc3.iterlinks():
+        url4 = n[2]
+        if not "sciimg.fits" in url4: continue
+        if link not in url4: continue
+        links.append(url4)
+    return links

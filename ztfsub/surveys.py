@@ -1,5 +1,5 @@
 
-import os, sys, optparse, shutil
+import os, sys, optparse, shutil, glob
 import random, string
 import numpy as np
 from matplotlib import pyplot as plt
@@ -45,7 +45,9 @@ def get_sdss(opts,imagefile,ra,dec,filt):
     if os.path.isfile(imagefile):
         return
 
-    listfile = 'sdss_%s_list.txt'%filt
+    N = 10
+    listfile = opts.tmpDir + "/sdss_" + filt + "_list_" + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(N)) + '.txt'
+
     fid = open(listfile,'w')
     for ii in xrange(len(ra_box)):
         for jj in xrange(len(dec_box)):
@@ -124,6 +126,10 @@ def get_ztf(opts,imagefile,imagenum):
     if not os.path.isdir(ztfDir):
         os.makedirs(ztfDir)
 
+    ztfResampleDir = '%s/ztf_resample'%opts.dataDir
+    if not os.path.isdir(ztfResampleDir):
+        os.makedirs(ztfResampleDir)
+
     images = []
     for link in links:
         linkSplit = link.split("/")
@@ -140,26 +146,21 @@ def get_ztf(opts,imagefile,imagenum):
     fieldID, tilera, tiledec = tile[0], tile[1], tile[2]
 
     N = 10
-    listfile = "ztf_list_" + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(N)) + '.txt'
+    listfile = opts.tmpDir + "/ztf_list_" + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(N)) + '.txt'
 
-    fid = open(listfile,'w')
     raimages, decimages = [], []
     for image in images:
         imagefinal = '%s/%s'%(ztfDir,image.split("/")[-1])
-        fid.write('%s\n'%(imagefinal))
-
         if not os.path.isfile(imagefinal):
             wget_command = "wget %s --user %s --password %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])
             os.system(wget_command)
             mv_command = 'mv %s %s'%(image.split("/")[-1],ztfDir)
             os.system(mv_command)
-
         hdulist=fits.open(imagefinal)
         header = hdulist[0].header
         raimage, decimage = float(header["CRVAL1"]), float(header["CRVAL2"])
         raimages.append(raimage)
         decimages.append(decimage)
-    fid.close()
 
     if not opts.ra == None:
         ra = opts.ra
@@ -171,14 +172,25 @@ def get_ztf(opts,imagefile,imagenum):
     else:
         dec = np.mean(decimages)
 
-    swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d -PIXEL_SCALE 1.0'%(listfile,opts.defaultsDir,ra,dec,opts.image_size,opts.image_size)
+    coord = SkyCoord(ra*u.deg,dec*u.deg,frame='icrs')
+ 
+    Threshold  = 0.5
+    catcoord = SkyCoord(np.array(raimages)*u.deg,np.array(decimages)*u.deg,frame='icrs') 
+    coord_distance = catcoord.separation(coord) 
+    Iids = np.where(coord_distance.deg <= Threshold)[0]
+    if len(Iids) == 0:
+        print "No ZTF images available... returning."
+        return False
+
+    fid = open(listfile,'w')
+    for Iid in Iids:
+        image = images[Iid]
+        imagefinal = '%s/%s'%(ztfDir,image.split("/")[-1])
+        fid.write('%s\n'%(imagefinal))
+    fid.close()
+
+    swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d -PIXEL_SCALE 1.0 -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml'%(listfile,opts.defaultsDir,ra,dec,opts.image_size,opts.image_size,imagefile,opts.tmpDir,ztfResampleDir,opts.tmpDir)
     os.system(swarp_command)
-
-    rm_command = "rm %s swarp.xml coadd.weight.fits"%listfile
-    os.system(rm_command)
-
-    mv_command = 'mv coadd.fits %s'%(imagefile)
-    os.system(mv_command)
 
     # replace borders with NaNs in ref image if there are any that are == 0,
     hdulist=fits.open(imagefile)
@@ -187,3 +199,84 @@ def get_ztf(opts,imagefile,imagenum):
 
     return True
 
+def get_ptf(opts,imageDir):
+
+    ptfResampleDir = '%s/ptf_resample/%s'%(opts.dataDir,opts.field)
+    if not os.path.isdir(ptfResampleDir):
+        os.makedirs(ptfResampleDir)
+
+    images = glob.glob('%s/ptf/%s/*.fits'%(opts.dataDir,opts.field))
+
+    raimages, decimages = [], []
+    data = {}
+    for image in images:
+        imagefile = image.split("/")[-1]
+        if "201603213319" in imagefile: continue
+
+        hdulist=fits.open(image)
+        header = hdulist[0].header
+        filt = header['FILTER']
+        raimage = float(header['CRVAL1'])
+        decimage = float(header['CRVAL2'])
+
+        if not filt in data:
+            data[filt] = {}
+            data[filt]["files"] = []
+            data[filt]["ras"] = []
+            data[filt]["decs"] = []
+
+        data[filt]["files"].append(image)
+        data[filt]["ras"].append(raimage)
+        data[filt]["decs"].append(decimage)
+
+        raimages.append(raimage)
+        decimages.append(decimage)
+
+    if not opts.ra == None:
+        ra = opts.ra
+    else:
+        ra = np.mean(raimages)
+
+    if not opts.declination == None:
+        dec = opts.declination
+    else:
+        dec = np.mean(decimages)
+
+    coord = SkyCoord(ra*u.deg,dec*u.deg,frame='icrs')
+
+    N = 10
+
+    imagefiles = {}
+    Threshold  = 0.5
+    for filt in data.iterkeys():
+        imagefile = "%s/ptf_%s.fits"%(imageDir,filt) 
+        imagefiles[filt] = imagefile
+
+        listfile = opts.tmpDir + "/ptf_list_" + filt + '_' + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(N)) + '.txt'
+
+        raimages, decimages = data[filt]["ras"], data[filt]["decs"]
+        images = data[filt]["files"]
+
+        catcoord = SkyCoord(np.array(raimages)*u.deg,np.array(decimages)*u.deg,frame='icrs')
+        coord_distance = catcoord.separation(coord)
+        Iids = np.where(coord_distance.deg <= Threshold)[0]
+
+        if len(Iids) == 0:
+            print "No PTF images available... returning."
+            return False
+
+        fid = open(listfile,'w')
+        for Iid in Iids:
+            image = images[Iid]
+            fid.write('%s\n'%(image))
+        fid.close()
+
+        swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d -PIXEL_SCALE 1.0 -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml'%(listfile,opts.defaultsDir,ra,dec,opts.image_size,opts.image_size,imagefile,opts.tmpDir,ptfResampleDir,opts.tmpDir)
+        os.system(swarp_command)
+
+        # replace borders with NaNs in ref image if there are any that are == 0,
+        hdulist=fits.open(imagefile)
+        hdulist[0].data[hdulist[0].data==0]=np.nan
+        hdulist.writeto(imagefile,overwrite=True)
+
+    return imagefiles

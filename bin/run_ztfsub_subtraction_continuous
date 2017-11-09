@@ -13,6 +13,8 @@ from astropy.io import fits
 import requests
 from lxml.html import fromstring
 
+import ztfsub.utils
+
 def parse_commandline():
     """
     Parse the options given on the command-line.
@@ -83,12 +85,13 @@ def get_most_recent_image():
     fid.close()       
 
     links = get_fits(link)
+
+    if len(links) == 0:
+        return False 
+
     linkSplit = links[0].split("/")
     imageSplit = linkSplit[-1].replace(".fits","").split("_")
     fieldID = int(imageSplit[-6])
-
-    if len(links) == 0:
-        return 
 
     raimages, decimages = [], []
     for image in links:
@@ -128,7 +131,7 @@ def get_most_recent_image():
         thresh = 16.0
         idxs = np.where(appMs < thresh)[0]
 
-        for idx in zip(idxs):
+        for idx in idxs:
             ragalaxy, decgalaxy = table["RAJ2000"][idx], table["DEJ2000"][idx]
 
             if len(data[fieldID]) == 1:
@@ -136,9 +139,13 @@ def get_most_recent_image():
                 system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d --ra %.5f --declination %.5f --image_size 200 --source sdss"%(imagenum1,ragalaxy, decgalaxy)
             else:
                 imagenum1 = int(imagenum)
-                imagenum2 = data[fieldID][0]
+                imagenum2 = int(data[fieldID][0])
                 system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d --imagenum2 %d --ra %.5f --declination %.5f --image_size 200"%(imagenum1,imagenum2,ragalaxy, decgalaxy)
+            print system_command
+            exit(0)
             os.system(system_command)
+
+    return True
 
 # Parse command line
 opts = parse_commandline()
@@ -186,7 +193,10 @@ for image in images:
 imagefile = "%s/images.dat"%(runDir)
 runLoop = True
 while runLoop:
-    get_most_recent_image()
-
-    webpage_command = "python run_ztfsub_subtraction_webpages"
-    os.system(webpage_command)
+    try:
+       newfile = get_most_recent_image()
+    except:
+        pass
+    if newfile:
+        webpage_command = "python run_ztfsub_subtraction_webpages"
+        os.system(webpage_command)
