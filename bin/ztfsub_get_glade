@@ -3,7 +3,8 @@ import os, sys, optparse
 import numpy as np
 
 import astropy.units as u
-import astropy.coordinates as coord
+from astropy.time import Time
+from astropy.coordinates import SkyCoord, EarthLocation, AltAz
 
 from astroquery.vizier import Vizier
 #Vizier.ROW_LIMIT = -1
@@ -53,6 +54,15 @@ fieldIDs = list(set(fieldIDs))
 tilesFile = '%s/ZTF_Fields.txt'%inputDir
 tiles = np.loadtxt(tilesFile,comments='%')
 
+lat = 33.3563
+lon = -116.8648
+height = 1712.0
+
+ZTF = EarthLocation(lat=lat*u.deg, lon=lon*u.deg, height=height*u.m)
+time = Time('2017-11-10 8:00:00')
+
+altthresh = 20.0
+
 ztffieldsfile = "%s/ZTF_Fields_galaxies.txt"%opts.outputDir
 if opts.doGetTiles:
     fid = open(ztffieldsfile,'w')
@@ -61,8 +71,11 @@ if opts.doGetTiles:
         fieldID, ra, dec = tile[0], tile[1], tile[2]
         if not fieldID in fieldIDs: continue
 
-        print fieldID
-        result = Vizier.query_region(coord.SkyCoord(ra=ra, dec=dec,
+        altaz = SkyCoord(ra=ra, dec=dec, unit=(u.deg, u.deg), frame='icrs').transform_to(AltAz(obstime=time,location=ZTF))
+
+        if altaz.alt.deg < altthresh: continue
+
+        result = Vizier.query_region(SkyCoord(ra=ra, dec=dec,
                                      unit=(u.deg, u.deg),
                                      frame='icrs'),
                                      width=[2.0*u.deg,2.0*u.deg],

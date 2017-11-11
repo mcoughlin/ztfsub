@@ -1,0 +1,65 @@
+
+import os, sys, optparse, shutil
+import numpy as np
+from matplotlib import pyplot as plt
+
+from astropy.io import fits
+from astropy.wcs import WCS
+
+def parse_commandline():
+    """
+    Parse the options given on the command-line.
+    """
+    parser = optparse.OptionParser()
+
+    parser.add_option("--dataDir",default="../data")
+    parser.add_option("-o","--outputDir",default="../output")
+    parser.add_option("--ra",default=None,type=float)
+    parser.add_option("--declination",default=None,type=float)
+    parser.add_option("--imagenum",default=504421,type=int)
+
+    opts, args = parser.parse_args()
+
+    return opts
+
+# Parse command line
+opts = parse_commandline()
+imagenum = opts.imagenum
+dataDir = opts.dataDir
+outputDir = opts.outputDir
+
+ztfDir = '%s/ztf'%dataDir
+
+linksFile = '%s/links.txt'%outputDir
+links = [line.rstrip('\n') for line in open(linksFile)]
+
+images = []
+for link in links:
+    linkSplit = link.split("/")
+    if imagenum == int(linkSplit[-2]):
+        images.append(link)
+
+for image in images:
+    imagefile = image.split("/")[-1]
+    imageSplit = imagefile.replace(".fits","").split("_")
+    fieldID = int(imageSplit[-6])
+
+    imagepath = "%s/%s"%(ztfDir,imagefile)
+    if fieldID > 90000: continue
+
+    hdulist=fits.open(imagepath)
+    header = hdulist[0].header
+
+    w = WCS(header)
+    ra1, dec1 = w.wcs_pix2world(0,0,1)
+    ra2, dec2 = w.wcs_pix2world(float(header['NAXIS1']), float(header['NAXIS2']),1)
+
+    ra_min, ra_max = np.min([ra1,ra2]), np.max([ra1,ra2])
+    dec_min, dec_max = np.min([dec1,dec2]), np.max([dec1,dec2])
+
+    if (opts.ra < ra_min) or (opts.ra > ra_max): continue
+    if (opts.declination < dec_min) or (opts.declination > dec_max): continue
+
+    print "CCD image: %s"%image
+  
+print "Field ID: %d"%fieldID

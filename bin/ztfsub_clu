@@ -31,10 +31,11 @@ def parse_commandline():
     parser.add_option("-d","--defaultsDir",default="../defaults")
     parser.add_option("--ra",default=None,type=float)
     parser.add_option("--declination",default=None,type=float)
+    parser.add_option("--fwhm",default=None)
     parser.add_option("--field",default="p3967")
     parser.add_option("--image_size",default=1000,type=int)
     parser.add_option("--doPlots",  action="store_true", default=False)
-
+    parser.add_option("--doForcedPhotometry",  action="store_true", default=False)
     opts, args = parser.parse_args()
 
     return opts
@@ -60,14 +61,54 @@ if not os.path.isdir(path_out_refs):
 if not os.path.isdir(path_out_pairs):
     os.makedirs(path_out_pairs)
 
+if opts.doForcedPhotometry:
+    fwhms = {}
+    if not opts.fwhm == None:
+        fwhm_vals = [float(x) for x in opts.fwhm.split(",")]
+        fwhms["Ha656"] = fwhm_vals[0]
+        fwhms["Ha663"] = fwhm_vals[1]
+        fwhms["Ha672"] = fwhm_vals[2]
+        fwhms["Ha681"] = fwhm_vals[3]
+    else:
+        fwhm_default = 5.0
+        fwhms["Ha656"] = fwhm_default
+        fwhms["Ha663"] = fwhm_default
+        fwhms["Ha672"] = fwhm_default
+        fwhms["Ha681"] = fwhm_default
+
 imagefiles = ztfsub.surveys.get_ptf(opts,path_out_refs)
 
 filts = imagefiles.keys()
+
+for ii in xrange(len(filts)):
+    filt = filts[ii]
+    fwhm = fwhms[filt]
+
+    hdulist=fits.open(imagefiles[filt])
+    header = hdulist[0].header
+    if not opts.ra == None:
+        ra = opts.ra
+    else:
+        ra = float(header["CRVAL1"])
+    if not opts.declination == None:
+        dec = opts.declination
+    else:
+        dec = float(header["CRVAL2"])
+
+    ztfsub.utils.sextractor(imagefiles[filt],defaultsDir)
+
+    if opts.doForcedPhotometry:
+        ztfsub.utils.forcedphotometry(imagefiles[filt],ra,dec,fwhm=fwhm)
+
+    if opts.doPlots:
+        plotName = imagefiles[filt].replace(".fits",".pdf")
+        ztfsub.plotting.plot_image(imagefiles[filt],plotName)
+
 for ii in xrange(len(filts)):
     for jj in xrange(len(filts)):
         filt1, filt2 = filts[ii], filts[jj]
 
-        if not ((filt1 == "681" and filt2 == "Ha672") or (filt1 == "Ha672" and filt2 == "Ha681") or (filt1 == "Ha663" and filt2 == "Ha656") or (filt1 == "Ha656" and filt2 == "Ha663")): continue
+        if not ((filt1 == "Ha681" and filt2 == "Ha672") or (filt1 == "Ha672" and filt2 == "Ha681") or (filt1 == "Ha663" and filt2 == "Ha656") or (filt1 == "Ha656" and filt2 == "Ha663")): continue
 
         path_out_pair='%s/%s_%s'%(path_out_pairs,filt1,filt2)
         if not os.path.isdir(path_out_pair):
@@ -113,6 +154,13 @@ for ii in xrange(len(filts)):
         imagesub = scienceimage.replace(".fits",".sub.fits")
         imagesubcat = imagesub.replace(".fits",".cat")
         ztfsub.utils.sextractor(imagesub,defaultsDir)
+
+        if opts.doForcedPhotometry:
+            fwhm = np.max([fwhms[filt1],fwhms[filt2]])
+            ztfsub.utils.forcedphotometry(scienceimage,ra,dec,fwhm=fwhm)
+            ztfsub.utils.forcedphotometry(refimage,ra,dec,fwhm=fwhm)
+            ztfsub.utils.forcedphotometry(scienceimageshift,ra,dec,fwhm=fwhm)
+            ztfsub.utils.forcedphotometry(imagesub,ra,dec,fwhm=fwhm)
 
         if opts.doPlots:
             #cat1 = np.loadtxt(catfile1)

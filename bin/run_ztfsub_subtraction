@@ -24,10 +24,12 @@ def parse_commandline():
     parser.add_option("-o","--outputDir",default="../output")
     parser.add_option("-d","--defaultsDir",default="../defaults")
 
+    parser.add_option("--day",default=None,type=int)
     parser.add_option("--imagenum",default=None,type=int)
     parser.add_option("--fieldID",default=None,type=int)
     
     parser.add_option("--doCopy",  action="store_true", default=False)
+    parser.add_option("--doLinks",  action="store_true", default=False)
 
     opts, args = parser.parse_args()
 
@@ -49,34 +51,64 @@ tilesFile = '%s/ZTF_Fields.txt'%inputDir
 tiles = np.loadtxt(tilesFile,comments='%')
 
 linksFile = '%s/links.txt'%outputDir
+if not os.path.isdir(outputDir):
+    os.makedirs(outputDir)
+if opts.doLinks:
+    links = ztfsub.utils.get_links()
+    fid = open(linksFile,'w')
+    for link in links:
+        fid.write("%s\n"%link)
+    fid.close()
 links = [line.rstrip('\n') for line in open(linksFile)]
 
 images = []
+imagesdata = []
 
-for link in links:
+for ii,link in enumerate(links):
     imagefile = link.split("/")[-1]
     linkSplit = link.split("/")
     imagenum = int(linkSplit[-2])
     imageSplit = imagefile.replace(".fits","").split("_")
     fieldID = int(imageSplit[-6])
+    monthday = int(linkSplit[-3])
 
     if fieldID > 10000: continue
 
     baselink = "/".join(link.split("/")[:-1]) + "/"
-    images.append([imagenum,fieldID,baselink])
+    images.append([imagenum,fieldID,baselink,monthday])
+    imagesdata.append([imagenum,ii])
+imagesdata = np.array(imagesdata)
 
 data = {}
 images = np.vstack({tuple(row) for row in images})
 for image in images:
-    imagenum,fieldID,baselink = image
-
+    imagenum,fieldID,baselink,monthday = image
+    idx = np.where(imagesdata[:,0] == int(imagenum))[0]
+    ii = np.min(imagesdata[idx,1])
+ 
     if not fieldID in data:
-        data[fieldID] = []
-    data[fieldID].append(imagenum)
+        data[fieldID] = {}
+        data[fieldID]["imagenums"] = []
+        data[fieldID]["dates"] = []
+        data[fieldID]["indexes"] = []
+
+    data[fieldID]["imagenums"].append(int(imagenum))
+    data[fieldID]["dates"].append(int(monthday))
+    data[fieldID]["indexes"].append(int(ii))
+
+for fieldID in data.iterkeys():
+    data[fieldID]["imagenums"] = np.array(data[fieldID]["imagenums"])
+    data[fieldID]["dates"] = np.array(data[fieldID]["dates"])
+    data[fieldID]["indexes"] = np.array(data[fieldID]["indexes"])
+
+    idxs = np.argsort(data[fieldID]["dates"])
+    data[fieldID]["imagenums"] = data[fieldID]["imagenums"][idxs]
+    data[fieldID]["dates"] = data[fieldID]["dates"][idxs]
+    data[fieldID]["indexes"] = data[fieldID]["indexes"][idxs]
 
 for fieldID in data.iterkeys():
 
-    for imagenum in data[fieldID]:
+    for imagenum,monthday in zip(data[fieldID]["imagenums"],data[fieldID]["dates"]):
 
         if not opts.fieldID == None:
             if not opts.fieldID == int(fieldID): 
@@ -84,8 +116,9 @@ for fieldID in data.iterkeys():
         if not opts.imagenum == None:
             if not opts.imagenum == int(imagenum): 
                 continue 
-
-        print fieldID, imagenum
+        if not opts.day == None:
+            if not opts.day == int(monthday):
+                continue        
 
         idx = np.where(np.array(images[:,0]).astype(int) == int(imagenum))[0]
         link = images[idx,2][0]
@@ -94,18 +127,13 @@ for fieldID in data.iterkeys():
         raimages, decimages = [], []
         for image in links:
             imagefinal = '%s/%s'%(ztfDir,image.split("/")[-1])
-
             if not os.path.isfile(imagefinal):
-                wget_command = "wget %s --user %s --password %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])
+                wget_command = "wget %s --user %s --password %s -O %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"],imagefinal)
                 os.system(wget_command)
-                mv_command = 'mv %s %s'%(image.split("/")[-1],ztfDir)
-                os.system(mv_command)
 
             if not os.path.isfile(imagefinal): continue
 
-            hdulist=fits.open(imagefinal)
-            header = hdulist[0].header
-            raimage, decimage = float(header["CRVAL1"]), float(header["CRVAL2"])
+            raimage, decimage = ztfsub.utils.get_radec_from_wcs(imagefinal)
             raimages.append(raimage)
             decimages.append(decimage)
 
@@ -134,21 +162,22 @@ for fieldID in data.iterkeys():
             for idx in idxs:
                 ragalaxy, decgalaxy = table["RAJ2000"][idx], table["DEJ2000"][idx]
 
-                if (len(data[fieldID]) == 1) or (int(imagenum) == int(data[fieldID][0])):
+                if (len(data[fieldID]["imagenums"]) == 1) or (int(imagenum) == int(data[fieldID]["imagenums"][0])):
                     imagenum1 = int(imagenum)
+                    continue
 
                     path_out_dir='%s/%d/%.5f_%.5f'%(outputDir,imagenum1,ragalaxy,decgalaxy)
                     if os.path.isdir(path_out_dir): continue
 
-                    system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d --ra %.5f --declination %.5f --image_size 200 --source sdss"%(imagenum1,ragalaxy, decgalaxy)
+                    system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d --ra %.5f --declination %.5f --image_size 200 --source sdss --outputDir %s"%(imagenum1,ragalaxy, decgalaxy, opts.outputDir)
                 else:
                     imagenum1 = int(imagenum)
-                    imagenum2 = int(data[fieldID][0])
+                    imagenum2 = int(data[fieldID]["imagenums"][0])
 
                     path_out_dir='%s/%d_%d/%.5f_%.5f'%(outputDir,imagenum1,imagenum2,ragalaxy,decgalaxy)
                     if os.path.isdir(path_out_dir): continue
 
-                    system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d --imagenum2 %d --ra %.5f --declination %.5f --image_size 200"%(imagenum1,imagenum2,ragalaxy, decgalaxy)
+                    system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d --imagenum2 %d --ra %.5f --declination %.5f --image_size 200 --outputDir %s"%(imagenum1,imagenum2,ragalaxy, decgalaxy,opts.outputDir)
                 os.system(system_command)
 
                 

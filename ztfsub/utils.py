@@ -7,19 +7,29 @@ from types import *
 import numpy as np
 
 from astropy.io import fits
+from astropy.wcs import WCS
 
 import requests
 from lxml.html import fromstring
+
+import PythonPhot as pp
 
 P60DISTORT = "P60distort.head"
 SUBREGION = "[1:1024,1:1024]"
 
 ######################################################################
 
-def get_head(imagefile,keywords):
+def get_radec_from_wcs(fitsfile):
+    header = fits.getheader(fitsfile)
+
+    w = WCS(header)
+    ra, dec = w.wcs_pix2world(float(header['NAXIS1'])/2.0, float(header['NAXIS2'])/2.0,1)
+    return ra, dec
+
+def get_head(imagefile,keywords,hdunum=0):
 
     hdulist=fits.open(imagefile)
-    header = hdulist[0].header
+    header = hdulist[hdunum].header
     vals = []
     for key in keywords:
         try:
@@ -166,7 +176,8 @@ def p60sdsssub(inlis, refimage, ot, distortdeg=1, scthresh1=3.0,
 
     # Get WCS center, pixel scale, and pixel extent of reference
     [n1,n2]=get_head(refimage, ['NAXIS1','NAXIS2'])
-    [ractr,dcctr]=get_head(refimage, ['CRVAL1','CRVAL2'])
+    ractr,dcctr = get_radec_from_wcs(refimage)
+    #[ractr,dcctr]=get_head(refimage, ['CRVAL1','CRVAL2'])
     #[[ractr,dcctr]]=impix2wcs(refimage,n1/2.0,n2/2.0)
     #if not (check_head(refimage,'PIXSCALE')):
     #    print 'Error: Please add PIXSCALE keyword to reference image'
@@ -276,6 +287,23 @@ def sextractor(imagefile,defaultsDir):
     os.system(cmd_sex)
     mv_command = 'mv test.cat %s'%(catfile)
     os.system(mv_command)
+
+def forcedphotometry(imagefile,ra,dec,fwhm=5.0):
+
+    hdulist=fits.open(imagefile)
+    header = fits.getheader(imagefile)
+    image = hdulist[0].data
+
+    w = WCS(header)
+    x0,y0 = w.wcs_world2pix(ra,dec,1)
+    gain = 1.0
+
+    mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=0,skyrad=[3*fwhm,5*fwhm],exact=False)
+
+    forcedfile = imagefile.replace(".fits",".forced")
+    fid = open(forcedfile,'w')
+    fid.write('%.5f %.5f\n'%(mag,magerr))
+    fid.close()
 
 def get_links():
     links = []

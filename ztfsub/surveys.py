@@ -18,11 +18,89 @@ from lxml.html import fromstring
 
 import ztfsub.utils
 
+def get_ps1(opts,imagefile,ra,dec,filt):
+
+    ps1Dir = '%s/ps1'%opts.dataDir
+    if not os.path.isdir(ps1Dir):
+        os.makedirs(ps1Dir)
+
+    ps1ResampleDir = '%s/ps1_resample'%opts.dataDir
+    if not os.path.isdir(ps1ResampleDir):
+        os.makedirs(ps1ResampleDir)
+
+    if os.path.isfile(imagefile):
+        return
+
+    BaseURL = "http://ps1images.stsci.edu/"
+
+    N = 10
+    listfile = opts.tmpDir + "/ps1_" + filt + "_list_" + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(N)) + '.txt'
+
+    wget_command = 'wget "http://ps1images.stsci.edu/cgi-bin/ps1filenames.py?ra=%.5f&dec=%.5f&filters=%s" -O %s'%(ra,dec,filt,listfile)
+    os.system(wget_command)
+
+    lines = [line.rstrip('\n') for line in open(listfile)]
+    lines = lines[1:]
+
+    if len(lines) == 0:
+        rm_command = "rm %s"%listfile
+        os.system(rm_command)
+        print "No PS1 images available... returning."
+        return False
+
+    fid = open(listfile,'w')
+    for line in lines:
+        lineSplit = line.split(" ")
+        datafits = lineSplit[-2]
+        datafitsshort = lineSplit[-1]
+        datafitsshort = datafitsshort.replace(".","_").replace("_fits",".fits")
+
+        Link = '%s%s'%(BaseURL,datafits)
+        FileNameFitsPath = '%s/%s'%(ps1Dir,datafitsshort)
+  
+        fid.write('%s\n'%(FileNameFitsPath))
+        if os.path.isfile(FileNameFitsPath): continue
+
+        wget_command = "wget %s -O %s"%(Link,FileNameFitsPath)
+        os.system(wget_command)
+
+        funpack_command = "fpack %s; rm %s; funpack %s.fz"%(FileNameFitsPath,FileNameFitsPath,FileNameFitsPath)
+        os.system(funpack_command)
+
+        rm_command = "rm funpack %s.fz"%(FileNameFitsPath)
+        os.system(rm_command)
+
+        NAXIS1, NAXIS2 = ztfsub.utils.get_head(FileNameFitsPath,['NAXIS1','NAXIS2'],hdunum=1)
+         
+        swarpcmd='swarp %s -CENTER_TYPE ALL -PIXELSCALE_TYPE MEDIAN -IMAGE_SIZE "%i, %i" -SUBTRACT_BACK N -IMAGEOUT_NAME %s -COPY_KEYWORDS FILTER' % (FileNameFitsPath, NAXIS1, NAXIS2, FileNameFitsPath)
+        os.system(swarpcmd)
+
+    fid.close()
+
+    swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d  -PIXEL_SCALE 0.396127 -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml'%(listfile,opts.defaultsDir,ra,dec,opts.image_size,opts.image_size,imagefile,opts.tmpDir,ps1ResampleDir,opts.tmpDir)
+    os.system(swarp_command)
+
+    # replace borders with NaNs in ref image if there are any that are == 0,
+    hdulist=fits.open(imagefile)
+    hdulist[0].data[hdulist[0].data==0]=np.nan
+    hdulist.writeto(imagefile,overwrite=True)
+
+    rm_command = "rm *.fits"
+    os.system(rm_command)
+    rm_command = "rm *.bz2"
+    os.system(rm_command)
+
+    return True
+
 def get_sdss(opts,imagefile,ra,dec,filt):
 
     sdssDir = '%s/sdss'%opts.dataDir
     if not os.path.isdir(sdssDir):
         os.makedirs(sdssDir)
+
+    sdssResampleDir = '%s/sdss_resample'%opts.dataDir
+    if not os.path.isdir(sdssResampleDir):
+        os.makedirs(sdssResampleDir)
 
     hdf5file = "%s/SDSS_DR9_Fields_All_PolySort.hdf5"%opts.inputDir
     f = h5py.File(hdf5file, 'r')
@@ -93,14 +171,8 @@ def get_sdss(opts,imagefile,ra,dec,filt):
         print "No SDSS images available... returning."
         return False
 
-    swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d  -PIXEL_SCALE 0.396127'%(listfile,opts.defaultsDir,ra,dec,opts.image_size,opts.image_size)
+    swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d  -PIXEL_SCALE 0.396127 -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml'%(listfile,opts.defaultsDir,ra,dec,opts.image_size,opts.image_size,imagefile,opts.tmpDir,sdssResampleDir,opts.tmpDir)
     os.system(swarp_command)
-
-    rm_command = "rm %s swarp.xml coadd.weight.fits"%listfile
-    os.system(rm_command)
-
-    mv_command = 'mv coadd.fits %s'%(imagefile)
-    os.system(mv_command)
 
     # replace borders with NaNs in ref image if there are any that are == 0,
     hdulist=fits.open(imagefile)
@@ -141,9 +213,9 @@ def get_ztf(opts,imagefile,imagenum):
 
     imageSplit = images[0].replace(".fits","").split("_")
     fieldID = int(imageSplit[-6])
-    idx = np.where(fieldID == tiles[:,0])[0]
-    tile = tiles[idx][0]
-    fieldID, tilera, tiledec = tile[0], tile[1], tile[2]
+    #idx = np.where(fieldID == tiles[:,0])[0]
+    #tile = tiles[idx][0]
+    #fieldID, tilera, tiledec = tile[0], tile[1], tile[2]
 
     N = 10
     listfile = opts.tmpDir + "/ztf_list_" + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(N)) + '.txt'
@@ -152,13 +224,9 @@ def get_ztf(opts,imagefile,imagenum):
     for image in images:
         imagefinal = '%s/%s'%(ztfDir,image.split("/")[-1])
         if not os.path.isfile(imagefinal):
-            wget_command = "wget %s --user %s --password %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])
+            wget_command = "wget %s --user %s --password %s -O %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"],imagefinal)
             os.system(wget_command)
-            mv_command = 'mv %s %s'%(image.split("/")[-1],ztfDir)
-            os.system(mv_command)
-        hdulist=fits.open(imagefinal)
-        header = hdulist[0].header
-        raimage, decimage = float(header["CRVAL1"]), float(header["CRVAL2"])
+        raimage, decimage = ztfsub.utils.get_radec_from_wcs(imagefinal)
         raimages.append(raimage)
         decimages.append(decimage)
 
@@ -178,6 +246,7 @@ def get_ztf(opts,imagefile,imagenum):
     catcoord = SkyCoord(np.array(raimages)*u.deg,np.array(decimages)*u.deg,frame='icrs') 
     coord_distance = catcoord.separation(coord) 
     Iids = np.where(coord_distance.deg <= Threshold)[0]
+
     if len(Iids) == 0:
         print "No ZTF images available... returning."
         return False
@@ -216,8 +285,7 @@ def get_ptf(opts,imageDir):
         hdulist=fits.open(image)
         header = hdulist[0].header
         filt = header['FILTER']
-        raimage = float(header['CRVAL1'])
-        decimage = float(header['CRVAL2'])
+        raimage, decimage = ztfsub.utils.get_radec_from_wcs(image)
 
         if not filt in data:
             data[filt] = {}

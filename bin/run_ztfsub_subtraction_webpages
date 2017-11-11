@@ -228,9 +228,12 @@ f.write(page)
 f.close()
 
 if opts.doCopy:
-    rsync_command = 'export RSYNC_RSH="gsissh"; rsync -arv /home/mcoughlin/ZTF/ztfsub/output/ atlas5.atlas.aei.uni-hannover.de:/home/mcoughlin/WWW/ZTF/'
+    rsync_command = 'export RSYNC_RSH="gsissh"; rsync -arv %s atlas5.atlas.aei.uni-hannover.de:/home/mcoughlin/WWW/ZTF/'%(opts.outputDir)
     os.system(rsync_command) 
 
 if opts.doCombine:
-    tar_command = "cd ../; tar -cvzf combined.tar.gz combined"
+    print opts.combinedDir
+    print opts.combinedDir.split("/")[-1]
+    tar_command = "cd ../; tar -cvzf %s.tar.gz %s"%(opts.combinedDir.split("/")[-1],opts.combinedDir.split("/")[-1])
+    print tar_command 
     os.system(tar_command)

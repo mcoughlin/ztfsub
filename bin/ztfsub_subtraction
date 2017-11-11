@@ -88,7 +88,7 @@ if opts.source == "ztf":
         path_out_dir='%s/%d_%d'%(outputDir,opts.imagenum1,opts.imagenum2)
     if not os.path.isdir(path_out_dir):
         os.makedirs(path_out_dir)
-elif opts.source == "sdss":
+elif (opts.source == "sdss") or (opts.source == "ps1"):
     if not opts.ra == None:
         path_out_dir='%s/%d/%.5f_%.5f'%(outputDir,opts.imagenum1,opts.ra,opts.declination)
     else:
@@ -111,17 +111,19 @@ header = hdulist[0].header
 if not opts.ra == None:
     ra = opts.ra
 else:
-    ra = float(header["CRVAL1"])
+    ra, junk = ztfsub.utils.get_radec_from_wcs(scienceimage)
 if not opts.declination == None:
     dec = opts.declination
 else:
-    dec = float(header["CRVAL2"])
+    junk, dec = ztfsub.utils.get_radec_from_wcs(scienceimage)
 
 if not os.path.isfile(refimage):
     if opts.source == "ztf":
         refgood = ztfsub.surveys.get_ztf(opts,refimage,opts.imagenum2)
     elif opts.source == "sdss":
         refgood = ztfsub.surveys.get_sdss(opts,refimage,ra,dec,'r')
+    elif opts.source == "ps1":
+        refgood = ztfsub.surveys.get_ps1(opts,refimage,ra,dec,'r')    
 else:
     refgood = True
 

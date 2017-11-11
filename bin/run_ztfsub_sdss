@@ -53,7 +53,7 @@ for image in images:
 
     hdulist=fits.open(imagefinal)
     header = hdulist[0].header
-    ra, dec = float(header["CRVAL1"]), float(header["CRVAL2"])
+    ra, dec = ztfsub.utils.get_radec_from_wcs(imagefinal)
     print imagenum,fieldID, imagefile, ra, dec
     #if not fieldID == 608: continue
 
