@@ -70,14 +70,17 @@ def get_ps1(opts,imagefile,ra,dec,filt):
         rm_command = "rm funpack %s.fz"%(FileNameFitsPath)
         os.system(rm_command)
 
-        NAXIS1, NAXIS2 = ztfsub.utils.get_head(FileNameFitsPath,['NAXIS1','NAXIS2'],hdunum=1)
+        #NAXIS1, NAXIS2 = ztfsub.utils.get_head(FileNameFitsPath,['NAXIS1','NAXIS2'],hdunum=1)
          
-        swarpcmd='swarp %s -CENTER_TYPE ALL -PIXELSCALE_TYPE MEDIAN -IMAGE_SIZE "%i, %i" -SUBTRACT_BACK N -IMAGEOUT_NAME %s -COPY_KEYWORDS FILTER' % (FileNameFitsPath, NAXIS1, NAXIS2, FileNameFitsPath)
-        os.system(swarpcmd)
+        #swarpcmd='swarp %s -CENTER_TYPE ALL -PIXELSCALE_TYPE MEDIAN -IMAGE_SIZE "%i, %i" -SUBTRACT_BACK N -IMAGEOUT_NAME %s -COPY_KEYWORDS FILTER' % (FileNameFitsPath, NAXIS1, NAXIS2, FileNameFitsPath)
+        #os.system(swarpcmd)
 
     fid.close()
 
-    swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d  -PIXEL_SCALE 0.396127 -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml'%(listfile,opts.defaultsDir,ra,dec,opts.image_size,opts.image_size,imagefile,opts.tmpDir,ps1ResampleDir,opts.tmpDir)
+    image_scale = float(1.0/0.5)
+    image_size = int(opts.image_size*image_scale)
+
+    swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d  -PIXEL_SCALE 0.258 -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml -COPY_KEYWORDS PIXEL_SCALE'%(listfile,opts.defaultsDir,ra,dec,image_size,image_size,imagefile,opts.tmpDir,ps1ResampleDir,opts.tmpDir)
     os.system(swarp_command)
 
     # replace borders with NaNs in ref image if there are any that are == 0,

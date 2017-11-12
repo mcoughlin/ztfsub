@@ -7,7 +7,7 @@ from astropy.time import Time
 from astropy.coordinates import SkyCoord, EarthLocation, AltAz
 
 from astroquery.vizier import Vizier
-#Vizier.ROW_LIMIT = -1
+Vizier.ROW_LIMIT = -1
 
 #catalog_list = Vizier.find_catalogs('GLADE')
 #cat, = Vizier.get_catalogs('VII/275')
@@ -78,15 +78,16 @@ if opts.doGetTiles:
         result = Vizier.query_region(SkyCoord(ra=ra, dec=dec,
                                      unit=(u.deg, u.deg),
                                      frame='icrs'),
-                                     width=[2.0*u.deg,2.0*u.deg],
+                                     width=[3.0*u.deg,3.0*u.deg],
                                      catalog=['VII/275'])
         for table_name in result.keys():
             table = result[table_name]
             appMs = table["Bmag"] # - (5*np.log10(table["Dist"]*1e6) - 5)
 
-            thresh = 15.5
-            idxs = np.where(appMs < thresh)[0]
+            #thresh = 15.5
+            #idxs = np.where(appMs < thresh)[0]
 
+            idxs = np.where((table["Dist"] > 40.0) & (table["Dist"] < 300.0))[0]
             fid.write("%d %d\n"%(fieldID,len(idxs)))
     fid.close()
 

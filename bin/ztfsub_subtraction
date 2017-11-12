@@ -38,6 +38,7 @@ def parse_commandline():
     parser.add_option("--doLinks",  action="store_true", default=False)
     parser.add_option("--doPlots",  action="store_true", default=False)
     parser.add_option("--doAstrometryNet",  action="store_true", default=False)
+    parser.add_option("--doSubtractBackground",  action="store_true", default=False)
 
     opts, args = parser.parse_args()
 
@@ -146,18 +147,18 @@ if opts.doPlots:
     plotName = os.path.join(path_out_dir,'ref.pdf')
     ztfsub.plotting.plot_image(refimage,plotName)    
 
-ztfsub.utils.sextractor(scienceimage,defaultsDir)
-ztfsub.utils.sextractor(refimage,defaultsDir)
+ztfsub.utils.sextractor(scienceimage,defaultsDir,doSubtractBackground=opts.doSubtractBackground)
+ztfsub.utils.sextractor(refimage,defaultsDir,doSubtractBackground=opts.doSubtractBackground)
 
 ztfsub.utils.p60sdsssub(scienceimage, refimage, [ra,dec], 
                distortdeg=1, scthresh1=3.0,
-               scthresh2=10.0, tu=50000, iu=50000, ig=2.3, tg=1.0,
+               scthresh2=10.0, tu=5000, iu=5000, ig=2.3, tg=1.0,
                stamps=None, nsx=4, nsy=4, ko=0, bgo=0, radius=10,
-               tlow=0.0, ilow=0.0, sthresh=5.0, ng=None, aperture=10.0,
+               tlow=-5000.0, ilow=-5000.0, sthresh=5.0, ng=None, aperture=10.0,
                defaultsDir=defaultsDir)
 
 scienceimageshift = scienceimage.replace(".fits",".shift.fits")
-ztfsub.utils.sextractor(scienceimageshift,defaultsDir)
+ztfsub.utils.sextractor(scienceimageshift,defaultsDir,doSubtractBackground=opts.doSubtractBackground)
 
 hdulistscishift=fits.open(scienceimageshift)
 if np.nansum(hdulistscishift[0].data) == 0.0:
@@ -166,7 +167,7 @@ if np.nansum(hdulistscishift[0].data) == 0.0:
 
 imagesub = scienceimage.replace(".fits",".sub.fits")
 imagesubcat = imagesub.replace(".fits",".cat")
-ztfsub.utils.sextractor(imagesub,defaultsDir)
+ztfsub.utils.sextractor(imagesub,defaultsDir,doSubtractBackground=opts.doSubtractBackground)
 
 if opts.doPlots:
 

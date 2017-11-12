@@ -92,7 +92,7 @@ for row in data:
     ha1magerr, ha1mag, ha2magerr, ha2mag, ha3magerr, ha3mag, ha4magerr, ha4mag =        row[17], row[18], row[19], row[20], row[21], row[22], row[23], row[24]
     csig1, csig2, csig3, csig4 = row[110], row[111], row[112], row[113]
     fwhm1, fwhm2, fwhm3, fwhm4 = row[72], row[73], row[74], row[75]
-    fwhm1, fwhm2, fwhm3, fwhm4 = 10.0, 10.0, 10.0, 10.0
+    fwhm1, fwhm2, fwhm3, fwhm4 = 6.0, 6.0, 6.0, 6.0
 
     if not ((ragalaxy > ramin-0.1) and (ragalaxy < ramax+0.1)): continue
     if not ((decgalaxy > decmin-0.1) and (decgalaxy < decmax+0.1)): continue
@@ -106,11 +106,14 @@ for row in data:
         system_command = "python ztfsub_clu --doPlots --field %s --ra %.5f --declination %.5f --image_size 200 --doForcedPhotometry --fwhm %s"%(opts.field,ragalaxy, decgalaxy,fwhms)
         os.system(system_command)
 
-    continue
-
     path_out_dir='%s/%s/%.5f_%.5f'%(outputDir,opts.field,ragalaxy,decgalaxy)
     path_out_pairs='%s/pairs'%path_out_dir
     path_out_refs='%s/refs'%path_out_dir
+
+    if not os.path.isfile(os.path.join(path_out_pairs,'Ha656_Ha663/sci.pdf')):
+        rm_command = "rm -rf %s"%path_out_dir
+        os.system(rm_command)
+        continue
 
     for ii in xrange(len(filts)):
         filt = filts[ii]

@@ -102,7 +102,10 @@ for ii in xrange(len(filts)):
 
     if opts.doPlots:
         plotName = imagefiles[filt].replace(".fits",".pdf")
-        ztfsub.plotting.plot_image(imagefiles[filt],plotName)
+        if opts.doForcedPhotometry:
+            ztfsub.plotting.plot_image(imagefiles[filt],plotName,ra=ra,dec=dec,fwhm=fwhm)
+        else:
+            ztfsub.plotting.plot_image(imagefiles[filt],plotName)
 
 for ii in xrange(len(filts)):
     for jj in xrange(len(filts)):
@@ -134,10 +137,16 @@ for ii in xrange(len(filts)):
 
         if opts.doPlots:
             plotName = os.path.join(path_out_pair,'sci.pdf')
-            ztfsub.plotting.plot_image(scienceimage,plotName)
+            if opts.doForcedPhotometry:
+                ztfsub.plotting.plot_image(scienceimage,plotName,ra=ra,dec=dec,fwhm=fwhm)
+            else:
+                ztfsub.plotting.plot_image(scienceimage,plotName)
             plotName = os.path.join(path_out_pair,'ref.pdf')
-            ztfsub.plotting.plot_image(refimage,plotName)
-        
+            if opts.doForcedPhotometry:
+                ztfsub.plotting.plot_image(refimage,plotName,ra=ra,dec=dec,fwhm=fwhm)
+            else:
+                ztfsub.plotting.plot_image(refimage,plotName)        
+
         ztfsub.utils.sextractor(scienceimage,defaultsDir)
         ztfsub.utils.sextractor(refimage,defaultsDir)
 
@@ -173,13 +182,18 @@ for ii in xrange(len(filts)):
             #catsub = catsub[catsub[:,2]<thresh,:]
     
             plotName = os.path.join(path_out_pair,'scishift.pdf')
-            ztfsub.plotting.plot_image(scienceimageshift,plotName)
+            if opts.doForcedPhotometry:
+                ztfsub.plotting.plot_image(scienceimageshift,plotName,ra=ra,dec=dec,fwhm=fwhm)
+            else:
+                ztfsub.plotting.plot_image(scienceimageshift,plotName)
 
             fig = plt.figure(figsize=(12,4))
             f1 = aplpy.FITSFigure(scienceimageshift,figure=fig,subplot=[0.1,0.1,0.25,0.8])
             f1.set_tick_labels_font(size='x-small')
             f1.set_axis_labels_font(size='small')
             f1.show_grayscale()
+            if opts.doForcedPhotometry:
+                f1.show_circles(ra,dec,fwhm/3600.0,zorder=99,linestyle='dashed', edgecolor='white')
             #f1.show_circles(cat1[:,3],cat1[:,4],1,zorder=0)
             f2 = aplpy.FITSFigure(refimage, figure=fig, subplot=[0.4,0.1,0.25,0.8])
             f2.set_tick_labels_font(size='x-small')
@@ -187,6 +201,8 @@ for ii in xrange(len(filts)):
             f2.show_grayscale()
             f2.hide_yaxis_label()
             f2.hide_ytick_labels()
+            if opts.doForcedPhotometry:
+                f2.show_circles(ra,dec,fwhm/3600.0,zorder=99,linestyle='dashed', edgecolor='white')
             #f2.show_circles(cat2[:,3],cat2[:,4],cat2[:,6])
             f3 = aplpy.FITSFigure(imagesub, figure=fig, subplot=[0.7,0.1,0.25,0.8])
             f3.set_tick_labels_font(size='x-small')
@@ -194,6 +210,8 @@ for ii in xrange(len(filts)):
             f3.show_grayscale()
             f3.hide_yaxis_label()
             f3.hide_ytick_labels()
+            if opts.doForcedPhotometry:
+                f3.show_circles(ra,dec,fwhm/3600.0,zorder=99,linestyle='dashed', edgecolor='white')
             #f3.show_circles(catsub[:,3],catsub[:,4],catsub[:,6])
             fig.canvas.draw()
             plotName = os.path.join(path_out_pair,'panels.pdf')

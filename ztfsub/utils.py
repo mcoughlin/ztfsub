@@ -280,13 +280,20 @@ def astrometrynet(imagefile):
     os.system('solve-field --no-plots --overwrite %s' % (imagefile))
     shutil.move(imagefile.replace(".fits",".new"), imagefile)
 
-def sextractor(imagefile,defaultsDir):
+def sextractor(imagefile,defaultsDir,doSubtractBackground=False):
 
     catfile = imagefile.replace(".fits",".cat")
-    cmd_sex = 'sex %s -c %s/default.sex -PARAMETERS_NAME %s/daofind.param -FILTER_NAME %s/default.conv'%(imagefile,defaultsDir,defaultsDir,defaultsDir)
+    backfile = imagefile.replace(".fits",".background.fits")
+    cmd_sex = 'sex %s -c %s/default.sex -PARAMETERS_NAME %s/daofind.param -FILTER_NAME %s/default.conv -CHECKIMAGE_TYPE BACKGROUND -CHECKIMAGE_NAME %s'%(imagefile,defaultsDir,defaultsDir,defaultsDir,backfile)
     os.system(cmd_sex)
     mv_command = 'mv test.cat %s'%(catfile)
     os.system(mv_command)
+
+    if doSubtractBackground:
+        hdulist=fits.open(imagefile)
+        hdulistback=fits.open(backfile)
+        hdulist[0].data=hdulist[0].data-hdulistback[0].data
+        hdulist.writeto(imagefile,clobber=True)        
 
 def forcedphotometry(imagefile,ra,dec,fwhm=5.0):
 
