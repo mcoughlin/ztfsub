@@ -1,0 +1,52 @@
+
+import os, sys, optparse, glob
+import numpy as np
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt 
+
+from astropy.io import fits
+
+import ztfsub.utils, ztfsub.surveys
+import ztfsub.plotting
+
+def parse_commandline():
+    """
+    Parse the options given on the command-line.
+    """
+    parser = optparse.OptionParser()
+
+    parser.add_option("--dataDir",default="../data")
+    parser.add_option("-o","--outputDir",default="../output_DBSP")
+    parser.add_option("-f","--filename",default="ZTF710a_74+87-88.spec.fits")
+    parser.add_option("--doPlots",  action="store_true", default=False)
+    opts, args = parser.parse_args()
+
+    return opts
+
+# Parse command line
+opts = parse_commandline()
+filename = opts.filename
+dataDir = opts.dataDir
+outputDir = opts.outputDir
+
+datafile = "%s/DBSP/%s"%(opts.dataDir,opts.filename)
+hdulist=fits.open(datafile)
+header = hdulist[0].header
+data = hdulist[0].data
+wavelengths = header["CRVAL1"] + np.arange(len(data),)*header["CDELT1"]
+
+filename = opts.filename.split(".")[0]
+path_out_dir='%s/%s'%(outputDir,filename)
+if not os.path.isdir(path_out_dir):
+    os.makedirs(path_out_dir)   
+ 
+if opts.doPlots:
+    plotName = os.path.join(path_out_dir,'spectrum.pdf')
+    fig = plt.figure(figsize=(12,4))
+    plt.semilogy(wavelengths,data,'k--')
+    plt.xlabel('Wavelength [nm]')
+    plt.ylabel('Spectrum [erg/s]')
+    plt.savefig(plotName)
+    plt.close() 
