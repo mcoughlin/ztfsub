@@ -78,6 +78,7 @@ if not os.path.isdir(path_out_dir_base):
     os.makedirs(path_out_dir_base)
 
 filts = ["Ha656","Ha663","Ha672","Ha681"]
+radecs = ["193.85600_28.47310","193.88700_28.80110","194.09000_28.55380","194.09300_28.54360","194.13200_28.66870","194.14900_28.53260","194.25500_28.47140","194.26000_28.46840","194.36500_28.75540","194.42100_28.40790","194.44500_28.58540","194.80400_28.43720","195.16900_27.65270","195.20900_27.66140","195.22000_27.59550","195.23500_28.46160","195.37400_28.68470","196.13200_27.63420","196.14600_27.74670","196.15300_28.81140","196.34900_28.56770","196.38700_27.72610","196.44600_27.73820","196.50400_28.59260","196.78600_28.42580","196.80400_28.54190","196.82500_28.37500","196.82600_28.38030","196.82800_28.58500","196.99800_28.68300","196.99900_28.57510","196.99900_28.57670","196.99900_28.70410","196.99900_28.72220","197.00100_28.71970","197.07600_28.36180","197.19500_28.57290"]
 
 combineddir = '%s/%s/combine'%(opts.outputDir,opts.field)
 if not os.path.isdir(combineddir):
@@ -99,6 +100,7 @@ for row in data:
 
     maxcsig = np.max([csig1, csig2, csig3, csig4])
     if maxcsig < 5: continue
+    if "%.5f_%.5f"%(ragalaxy,decgalaxy) in radecs: continue
 
     fwhms = "%.2f,%.2f,%.2f,%.2f"%(fwhm1, fwhm2, fwhm3, fwhm4)
 
@@ -185,9 +187,25 @@ plt.xlim([10,20])
 plt.ylim([-15,0])
 plt.gca().invert_xaxis()
 plt.gca().invert_yaxis()
+plt.xlabel('CLU Magnitude')
+plt.ylabel('Aperture Magnitude')
 plotName = os.path.join(combineddir,'comparison.pdf')
 plt.savefig(plotName)
 plt.close()
 
-print combined
+plt.figure()
+plt.errorbar(combined[:,0],combined[:,0]-combined[:,8],xerr=combined[:,1],yerr=np.sqrt(combined[:,1]**2 + combined[:,9]**2),fmt='o',color='b',label="Ha656")
+plt.errorbar(combined[:,2],combined[:,2]-combined[:,10],xerr=combined[:,3],yerr=np.sqrt(combined[:,3]**2 + combined[:,11]),fmt='o',color='r',label="Ha663")
+plt.errorbar(combined[:,4],combined[:,4]-combined[:,12],xerr=combined[:,5],yerr=np.sqrt(combined[:,5]**2 + combined[:,13]),fmt='o',color='g',label="Ha672")
+plt.errorbar(combined[:,6],combined[:,6]-combined[:,14],xerr=combined[:,7],yerr=np.sqrt(combined[:,7]**2 + combined[:,15]),fmt='o',color='c',label="Ha681")
+plt.legend(loc="best")
+plt.xlim([10,20])
+plt.ylim([20,30])
+plt.gca().invert_xaxis()
+plt.gca().invert_yaxis()
+plt.xlabel('CLU Magnitude')
+plt.ylabel('CLU - Aperture Magnitude')
+plotName = os.path.join(combineddir,'comparison_diff.pdf')
+plt.savefig(plotName)
+plt.close()
 

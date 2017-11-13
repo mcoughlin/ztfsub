@@ -34,8 +34,11 @@ def parse_commandline():
     parser.add_option("--fwhm",default=None)
     parser.add_option("--field",default="p3967")
     parser.add_option("--image_size",default=1000,type=int)
+
     parser.add_option("--doPlots",  action="store_true", default=False)
     parser.add_option("--doForcedPhotometry",  action="store_true", default=False)
+    parser.add_option("--doSubtractBackground",  action="store_true", default=False)    
+
     opts, args = parser.parse_args()
 
     return opts
@@ -70,13 +73,16 @@ if opts.doForcedPhotometry:
         fwhms["Ha672"] = fwhm_vals[2]
         fwhms["Ha681"] = fwhm_vals[3]
     else:
-        fwhm_default = 5.0
+        fwhm_default = 8.0
         fwhms["Ha656"] = fwhm_default
         fwhms["Ha663"] = fwhm_default
         fwhms["Ha672"] = fwhm_default
         fwhms["Ha681"] = fwhm_default
 
-imagefiles = ztfsub.surveys.get_ptf(opts,path_out_refs)
+imagefiles, goodimages = ztfsub.surveys.get_ptf(opts,path_out_refs)
+if not goodimages:
+    print "Images do not have data..."
+    exit(0)
 
 filts = imagefiles.keys()
 
@@ -95,7 +101,7 @@ for ii in xrange(len(filts)):
     else:
         dec = float(header["CRVAL2"])
 
-    ztfsub.utils.sextractor(imagefiles[filt],defaultsDir)
+    ztfsub.utils.sextractor(imagefiles[filt],defaultsDir,doSubtractBackground=opts.doSubtractBackground)
 
     if opts.doForcedPhotometry:
         ztfsub.utils.forcedphotometry(imagefiles[filt],ra,dec,fwhm=fwhm)
@@ -107,6 +113,14 @@ for ii in xrange(len(filts)):
         else:
             ztfsub.plotting.plot_image(imagefiles[filt],plotName)
 
+if opts.doPlots:
+    plotName = os.path.join(path_out_refs,'panels.pdf')
+    if opts.doForcedPhotometry:
+        ztfsub.plotting.plot_images(imagefiles,plotName,ra=ra,dec=dec,fwhm=fwhm)
+    else:
+        ztfsub.plotting.plot_images(imagefiles,plotName)
+
+combinedimagefiles = {}
 for ii in xrange(len(filts)):
     for jj in xrange(len(filts)):
         filt1, filt2 = filts[ii], filts[jj]
@@ -171,6 +185,8 @@ for ii in xrange(len(filts)):
             ztfsub.utils.forcedphotometry(scienceimageshift,ra,dec,fwhm=fwhm)
             ztfsub.utils.forcedphotometry(imagesub,ra,dec,fwhm=fwhm)
 
+        combinedimagefiles['%s_%s'%(filt1,filt2)] = imagesub
+
         if opts.doPlots:
             #cat1 = np.loadtxt(catfile1)
             #cat2 = np.loadtxt(catfile2)
@@ -219,3 +235,10 @@ for ii in xrange(len(filts)):
             plotName = os.path.join(path_out_pair,'panels.png')
             plt.savefig(plotName)
             plt.close() 
+
+if opts.doPlots:
+    plotName = os.path.join(path_out_pairs,'panels.pdf')
+    if opts.doForcedPhotometry:
+        ztfsub.plotting.plot_images(combinedimagefiles,plotName,ra=ra,dec=dec,fwhm=fwhm)
+    else:
+        ztfsub.plotting.plot_images(combinedimagefiles,plotName)

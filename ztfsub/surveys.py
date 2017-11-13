@@ -317,6 +317,7 @@ def get_ptf(opts,imageDir):
 
     N = 10
 
+    goodimages = True
     imagefiles = {}
     Threshold  = 0.5
     for filt in data.iterkeys():
@@ -347,7 +348,11 @@ def get_ptf(opts,imageDir):
 
         # replace borders with NaNs in ref image if there are any that are == 0,
         hdulist=fits.open(imagefile)
+ 
+        if np.nansum(hdulist[0].data) == 0:
+            goodimages = False
+
         hdulist[0].data[hdulist[0].data==0]=np.nan
         hdulist.writeto(imagefile,overwrite=True)
 
-    return imagefiles
+    return imagefiles, goodimages

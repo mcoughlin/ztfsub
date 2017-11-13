@@ -2,16 +2,18 @@
 import os, sys, glob
 
 outputDir = "../output"
+outputDir = "../output_clu"
 eventDirs = glob.glob("%s/*"%outputDir)
 
 combinedDir = "../combined"
+combinedDir = "../combined_clu"
 if not os.path.isdir(combinedDir):
     os.makedirs(combinedDir)
 
 for eventDir in eventDirs:
     transientDirs = glob.glob("%s/*"%eventDir)
     for transientDir in transientDirs:
-        pdffile = "%s/panels.pdf"%transientDir
+        pdffile = "%s/refs/panels.pdf"%transientDir
         if not os.path.isfile(pdffile): continue
         transientDirSplit = transientDir.split("/")
         transientfile = "%s/%s_%s.pdf"%(combinedDir,transientDirSplit[-2],transientDirSplit[-1])
@@ -19,5 +21,5 @@ for eventDir in eventDirs:
         cp_command = "cp %s %s"%(pdffile,transientfile)
         os.system(cp_command)
 
-tar_command = "cd ../; tar -cvzf combined.tar.gz combined"
+tar_command = "cd ../; tar -cvzf combined_clu.tar.gz combined_clu"
 os.system(tar_command)

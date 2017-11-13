@@ -81,10 +81,11 @@ def p60hotpants(inlis, refimage, outimage, tu=50000, iu=50000, ig=2.3, tg=2.3,
 
 ############################################################################
 
-def p60swarp(image, outfile, ractr=None, dcctr=None, pixscale=None, size=None,
-             backsub=False):
+def p60swarp(opts, image, outfile, ractr=None, dcctr=None, pixscale=None, size=None,backsub=False):
 
     '''Run SWarp on P60 images'''
+
+    resampleDir = "/".join(image.split("/")[:-1])
 
     swarpcmd='swarp %s ' % image
     if ractr!=None or dcctr!=None:
@@ -95,11 +96,11 @@ def p60swarp(image, outfile, ractr=None, dcctr=None, pixscale=None, size=None,
         swarpcmd+='-IMAGE_SIZE "%i, %i" ' % (size[0], size[1])
     if backsub==False:
         swarpcmd+='-SUBTRACT_BACK N '
-    swarpcmd+='-COPY_KEYWORDS OBJECT,SKYSUB,SKYBKG,SEEPIX '
+    swarpcmd+='-COPY_KEYWORDS OBJECT,SKYSUB,SKYBKG,SEEPIX,PIXEL_SCALE '
+    swarpcmd+='-c %s/swarp.conf -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml'%(opts.defaultsDir,outfile,opts.tmpDir,resampleDir,opts.tmpDir)
 
     scmd=os.popen(swarpcmd, 'r', -1)
     scmd.readlines()
-    shutil.move('coadd.fits', outfile)
 
 def getsdssfits(object, ra, dec, filters=['g', 'r', 'i', 'z'], width=0.15, 
                 pix=0.378, tmpdir='tmp'):
@@ -162,7 +163,7 @@ def getrefstars(object, ra, dec, width=0.15, pmcut=True):
 
 ############################################################################
 
-def p60sdsssub(inlis, refimage, ot, distortdeg=1, scthresh1=3.0, 
+def p60sdsssub(opts, inlis, refimage, ot, distortdeg=1, scthresh1=3.0, 
                scthresh2=10.0, tu=50000, iu=50000, ig=2.3, tg=1.0, 
                stamps=None, nsx=4, nsy=4, ko=0, bgo=0, radius=10, 
                tlow=0.0, ilow=None, sthresh=5.0, ng=None, aperture=10.0,
@@ -206,7 +207,7 @@ def p60sdsssub(inlis, refimage, ot, distortdeg=1, scthresh1=3.0,
 
         # Run Swarp
         #p60swarp('%s.dist.fits' % root, '%s.shift.fits' % root, ractr=ractr, 
-        p60swarp('%s.fits' % root, '%s.shift.fits' % root, ractr=ractr,
+        p60swarp(opts, '%s.fits' % root, '%s.shift.fits' % root, ractr=ractr,
                  dcctr=dcctr, pixscale=pix, size=[n1, n2], backsub=False)
 
         # Subtract
@@ -234,7 +235,7 @@ def p60sdsssub(inlis, refimage, ot, distortdeg=1, scthresh1=3.0,
     print "Exiting successfully"
     return
     
-def p60scamp(inlis, refimage=None, distortdeg=3, scthresh1=5.0, 
+def p60scamp(opts, inlis, refimage=None, distortdeg=3, scthresh1=5.0, 
              scthresh2=10.0, match=False, cat="SDSS-R6", 
              defaultsDir = "defaults"):
 
@@ -284,10 +285,8 @@ def sextractor(imagefile,defaultsDir,doSubtractBackground=False):
 
     catfile = imagefile.replace(".fits",".cat")
     backfile = imagefile.replace(".fits",".background.fits")
-    cmd_sex = 'sex %s -c %s/default.sex -PARAMETERS_NAME %s/daofind.param -FILTER_NAME %s/default.conv -CHECKIMAGE_TYPE BACKGROUND -CHECKIMAGE_NAME %s'%(imagefile,defaultsDir,defaultsDir,defaultsDir,backfile)
+    cmd_sex = 'sex %s -c %s/default.sex -PARAMETERS_NAME %s/daofind.param -FILTER_NAME %s/default.conv -CHECKIMAGE_TYPE BACKGROUND -CHECKIMAGE_NAME %s -CATALOG_NAME %s'%(imagefile,defaultsDir,defaultsDir,defaultsDir,backfile,catfile)
     os.system(cmd_sex)
-    mv_command = 'mv test.cat %s'%(catfile)
-    os.system(mv_command)
 
     if doSubtractBackground:
         hdulist=fits.open(imagefile)

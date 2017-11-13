@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 
 import os, sys, optparse, shutil
 import numpy as np
@@ -150,7 +151,7 @@ if opts.doPlots:
 ztfsub.utils.sextractor(scienceimage,defaultsDir,doSubtractBackground=opts.doSubtractBackground)
 ztfsub.utils.sextractor(refimage,defaultsDir,doSubtractBackground=opts.doSubtractBackground)
 
-ztfsub.utils.p60sdsssub(scienceimage, refimage, [ra,dec], 
+ztfsub.utils.p60sdsssub(opts, scienceimage, refimage, [ra,dec], 
                distortdeg=1, scthresh1=3.0,
                scthresh2=10.0, tu=5000, iu=5000, ig=2.3, tg=1.0,
                stamps=None, nsx=4, nsy=4, ko=0, bgo=0, radius=10,
