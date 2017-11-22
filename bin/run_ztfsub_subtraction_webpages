@@ -34,11 +34,14 @@ for link in links:
     imagenum = int(linkSplit[-2])
     imageSplit = imagefile.replace(".fits","").split("_")
     fieldID = int(imageSplit[-6])
+    monthday = int(linkSplit[-3])
 
+    if monthday < 1100: continue
     if fieldID > 10000: continue
 
     baselink = "/".join(link.split("/")[:-1]) + "/"
-    images.append([imagenum,fieldID,baselink])
+    images.append([imagenum,fieldID,monthday])
+images = np.array(images)
 
 eventDirs = glob.glob("%s/*"%outputDir)
 
@@ -178,7 +181,7 @@ table = ["""
     <tbody>
 """]
 
-table.append("""<tr><td>Field ID</td><td>Image</td><td>Reference</td><td>Link</td></tr>""")
+table.append("""<tr><td>Field ID</td><td>Observation Date</td><td>Observation Image</td><td>Reference Date</td><td>Reference Image</td><td>Link</td></tr>""")
 for eventDir in eventDirTransients:
 
     if "links" in eventDir: continue
@@ -186,18 +189,23 @@ for eventDir in eventDirTransients:
 
     eventDirSplit = eventDir.split("/")
     eventSplit = eventDirSplit[-1].split("_")
-    image = eventSplit[0]
-
-    idx = np.where(np.array(images)[:,0].astype(int) == int(image))[0]
+    monthday = int(eventSplit[0])
+    imagenum = int(eventSplit[1])
+   
+    idx = np.where((images[:,0] == imagenum) & (images[:,2] == monthday))[0]
     fieldID = int(np.array(images)[idx,1][0])
 
-    if len(eventSplit) == 1:
-        ref = "SDSS"
+    if len(eventSplit) == 2:
+        refmonthday = "-"
+        refimagenum = "-"
     else:
-        ref = eventSplit[1] 
+        refmonthday = eventSplit[2]
+        refimagenum = eventSplit[3]
 
     table.append("""
             <tr>
+            <td style="vertical-align: top;">%d</td>
+            <td style="vertical-align: top;">%d</td>
             <td style="vertical-align: top;">%d</td>
             <td style="vertical-align: top;">%s</td>
             <td style="vertical-align: top;">%s</td>
@@ -205,7 +213,7 @@ for eventDir in eventDirTransients:
             <a href="../%s/summary.html">Summary Page<br>
             </td>
             </tr>
-            """%(fieldID,image,ref,eventDirSplit[-1]))
+            """%(fieldID,monthday,imagenum,refmonthday,refimagenum,eventDirSplit[-1]))
 table.append("</tbody></table><br><br>")
 # add tables and list
 contents.append("".join(table))
@@ -234,6 +242,6 @@ if opts.doCopy:
 if opts.doCombine:
     print opts.combinedDir
     print opts.combinedDir.split("/")[-1]
-    tar_command = "cd ../; tar -cvzf %s.tar.gz %s"%(opts.combinedDir.split("/")[-1],opts.combinedDir.split("/")[-1])
+    tar_command = "cd %s; tar -cvzf %s.tar.gz %s"%("/".join(opts.combinedDir.split("/")[:-1]),opts.combinedDir.split("/")[-1],opts.combinedDir.split("/")[-1])
     print tar_command 
     os.system(tar_command)

@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 
 import os, sys, optparse, glob
 import numpy as np
@@ -29,8 +30,8 @@ def parse_commandline():
     parser.add_option("-t","--tmpDir",default="/tmp")
     parser.add_option("-o","--outputDir",default="../output_clu")
     parser.add_option("-d","--defaultsDir",default="../defaults")
-    parser.add_option("--ra",default=None,type=float)
-    parser.add_option("--declination",default=None,type=float)
+    parser.add_option("--ra",default=None)
+    parser.add_option("--declination",default=None)
     parser.add_option("--fwhm",default=None)
     parser.add_option("--field",default="p3967")
     parser.add_option("--image_size",default=1000,type=int)
@@ -38,6 +39,7 @@ def parse_commandline():
     parser.add_option("--doPlots",  action="store_true", default=False)
     parser.add_option("--doForcedPhotometry",  action="store_true", default=False)
     parser.add_option("--doSubtractBackground",  action="store_true", default=False)    
+    parser.add_option("--doOverwrite",  action="store_true", default=False)
 
     opts, args = parser.parse_args()
 
@@ -50,10 +52,29 @@ dataDir = opts.dataDir
 outputDir = opts.outputDir
 defaultsDir = opts.defaultsDir
 
+ra = [float(x) for x in opts.ra.split(",")]
+dec = [float(x) for x in opts.declination.split(",")]
+ra_string = "_".join(opts.ra.split(","))
+dec_string = "_".join(opts.declination.split(","))
+
+if len(ra) == 1:
+    ra, dec = ra[0], dec[0]
+    ra_size, dec_size = opts.image_size, opts.image_size
+elif len(ra) == 2:
+    ra_size = int(3600*np.abs(ra[1]-ra[0])/2.0)
+    ra = (ra[1]+ra[0])/2.0
+    dec_size = int(3600*np.abs(dec[1]-dec[0])/2.0)
+    dec = (dec[1]+dec[0])/2.0
+
 if not opts.ra == None:
-    path_out_dir='%s/%s/%.5f_%.5f'%(outputDir,opts.field,opts.ra,opts.declination)
+    path_out_dir='%s/%s/%s_%s'%(outputDir,opts.field,ra_string,dec_string)
 else:
     path_out_dir='%s/%s'%(outputDir,opts.field)
+
+if opts.doOverwrite:
+    rm_command = "rm -rf %s"%path_out_dir
+    os.system(rm_command)
+
 if not os.path.isdir(path_out_dir):
     os.makedirs(path_out_dir)
 
@@ -79,7 +100,7 @@ if opts.doForcedPhotometry:
         fwhms["Ha672"] = fwhm_default
         fwhms["Ha681"] = fwhm_default
 
-imagefiles, goodimages = ztfsub.surveys.get_ptf(opts,path_out_refs)
+imagefiles, goodimages = ztfsub.surveys.get_ptf(opts,path_out_refs,ra=ra,ra_size=ra_size,dec=dec,dec_size=dec_size)
 if not goodimages:
     print "Images do not have data..."
     exit(0)
@@ -88,22 +109,19 @@ filts = imagefiles.keys()
 
 for ii in xrange(len(filts)):
     filt = filts[ii]
-    fwhm = fwhms[filt]
 
     hdulist=fits.open(imagefiles[filt])
+
     header = hdulist[0].header
-    if not opts.ra == None:
-        ra = opts.ra
-    else:
+    if opts.ra == None:
         ra = float(header["CRVAL1"])
-    if not opts.declination == None:
-        dec = opts.declination
-    else:
+    if opts.declination == None:
         dec = float(header["CRVAL2"])
 
     ztfsub.utils.sextractor(imagefiles[filt],defaultsDir,doSubtractBackground=opts.doSubtractBackground)
 
     if opts.doForcedPhotometry:
+        fwhm = fwhms[filt]
         ztfsub.utils.forcedphotometry(imagefiles[filt],ra,dec,fwhm=fwhm)
 
     if opts.doPlots:
@@ -111,14 +129,14 @@ for ii in xrange(len(filts)):
         if opts.doForcedPhotometry:
             ztfsub.plotting.plot_image(imagefiles[filt],plotName,ra=ra,dec=dec,fwhm=fwhm)
         else:
-            ztfsub.plotting.plot_image(imagefiles[filt],plotName)
+            ztfsub.plotting.plot_image(imagefiles[filt],plotName,catfile=imagefiles[filt].replace(".fits",".cat"))
 
 if opts.doPlots:
     plotName = os.path.join(path_out_refs,'panels.pdf')
     if opts.doForcedPhotometry:
         ztfsub.plotting.plot_images(imagefiles,plotName,ra=ra,dec=dec,fwhm=fwhm)
     else:
-        ztfsub.plotting.plot_images(imagefiles,plotName)
+        ztfsub.plotting.plot_images(imagefiles,plotName,catfiles=True)
 
 combinedimagefiles = {}
 for ii in xrange(len(filts)):
@@ -137,16 +155,16 @@ for ii in xrange(len(filts)):
         os.system(cp_command)
         cp_command = "cp %s %s"%(imagefiles[filt2],refimage)
         os.system(cp_command)
+        cp_command = "cp %s %s"%(imagefiles[filt1].replace(".fits",".cat"),scienceimage.replace(".fits",".cat"))
+        os.system(cp_command)
+        cp_command = "cp %s %s"%(imagefiles[filt2].replace(".fits",".cat"),refimage.replace(".fits",".cat"))
+        os.system(cp_command)
 
         hdulist=fits.open(scienceimage)
         header = hdulist[0].header
-        if not opts.ra == None:
-            ra = opts.ra
-        else:
+        if opts.ra == None:
             ra = float(header["CRVAL1"])
-        if not opts.declination == None:
-            dec = opts.declination
-        else:
+        if opts.declination == None:
             dec = float(header["CRVAL2"])
 
         if opts.doPlots:
@@ -154,28 +172,35 @@ for ii in xrange(len(filts)):
             if opts.doForcedPhotometry:
                 ztfsub.plotting.plot_image(scienceimage,plotName,ra=ra,dec=dec,fwhm=fwhm)
             else:
-                ztfsub.plotting.plot_image(scienceimage,plotName)
+                ztfsub.plotting.plot_image(scienceimage,plotName,catfile=scienceimage.replace(".fits",".cat"))
             plotName = os.path.join(path_out_pair,'ref.pdf')
             if opts.doForcedPhotometry:
                 ztfsub.plotting.plot_image(refimage,plotName,ra=ra,dec=dec,fwhm=fwhm)
             else:
-                ztfsub.plotting.plot_image(refimage,plotName)        
+                ztfsub.plotting.plot_image(refimage,plotName,catfile=refimage.replace(".fits",".cat"))        
 
         ztfsub.utils.sextractor(scienceimage,defaultsDir)
         ztfsub.utils.sextractor(refimage,defaultsDir)
 
-        ztfsub.utils.p60sdsssub(scienceimage, refimage, [ra,dec], 
-               distortdeg=1, scthresh1=3.0,
-               scthresh2=10.0, tu=50000, iu=50000, ig=2.3, tg=1.0,
-               stamps=None, nsx=4, nsy=4, ko=0, bgo=0, radius=10,
-               tlow=0.0, ilow=0.0, sthresh=5.0, ng=None, aperture=10.0,
-               defaultsDir=defaultsDir)
+        if opts.doForcedPhotometry:
+            ztfsub.utils.p60sdsssub(opts, scienceimage, refimage, [ra,dec],
+                 distortdeg=1, scthresh1=5.0,
+                 scthresh2=5.0, tu=5000, iu=5000, ig=2.3, tg=1.0,
+                 stamps=None, nsx=1, nsy=1, ko=0, bgo=0, radius=10,
+                 tlow=-5000.0, ilow=-5000.0, sthresh=5.0, ng=None, 
+                 aperture=10.0, defaultsDir=defaultsDir)
+        else:
+            ztfsub.utils.p60sdsssub(opts, scienceimage, refimage, [ra,dec],
+                 distortdeg=1, scthresh1=3.0,
+                 scthresh2=10.0, tu=25000, iu=25000, ig=2.3, tg=1.0,
+                 stamps=None, nsx=16, nsy=16, ko=0, bgo=0, radius=10,
+                 tlow=-25000.0, ilow=-25000.0, sthresh=5.0, ng=None,
+                 aperture=10.0, defaultsDir=defaultsDir)
 
         scienceimageshift = scienceimage.replace(".fits",".shift.fits")
         ztfsub.utils.sextractor(scienceimageshift,defaultsDir)
 
         imagesub = scienceimage.replace(".fits",".sub.fits")
-        imagesubcat = imagesub.replace(".fits",".cat")
         ztfsub.utils.sextractor(imagesub,defaultsDir)
 
         if opts.doForcedPhotometry:
@@ -188,20 +213,12 @@ for ii in xrange(len(filts)):
         combinedimagefiles['%s_%s'%(filt1,filt2)] = imagesub
 
         if opts.doPlots:
-            #cat1 = np.loadtxt(catfile1)
-            #cat2 = np.loadtxt(catfile2)
-            #catsub = np.loadtxt(catfilesub)
-     
-            #thresh = -8
-            #cat1 = cat1[cat1[:,2]<thresh,:]
-            #cat2 = cat2[cat2[:,2]<thresh,:]
-            #catsub = catsub[catsub[:,2]<thresh,:]
     
             plotName = os.path.join(path_out_pair,'scishift.pdf')
             if opts.doForcedPhotometry:
                 ztfsub.plotting.plot_image(scienceimageshift,plotName,ra=ra,dec=dec,fwhm=fwhm)
             else:
-                ztfsub.plotting.plot_image(scienceimageshift,plotName)
+                ztfsub.plotting.plot_image(scienceimageshift,plotName,catfile=scienceimageshift.replace(".fits",".cat"))
 
             fig = plt.figure(figsize=(12,4))
             f1 = aplpy.FITSFigure(scienceimageshift,figure=fig,subplot=[0.1,0.1,0.25,0.8])
@@ -210,6 +227,12 @@ for ii in xrange(len(filts)):
             f1.show_grayscale()
             if opts.doForcedPhotometry:
                 f1.show_circles(ra,dec,fwhm/3600.0,zorder=99,linestyle='dashed', edgecolor='white')
+            else:
+                catfile = scienceimageshift.replace(".fits",".cat")
+                cat = np.loadtxt(catfile)
+                if cat.size:
+                    ras, decs, fwhms = cat[:,3], cat[:,4], cat[:,6]
+                    f1.show_circles(ras,decs,fwhms,zorder=99,linestyle='dashed', edgecolor='red')
             #f1.show_circles(cat1[:,3],cat1[:,4],1,zorder=0)
             f2 = aplpy.FITSFigure(refimage, figure=fig, subplot=[0.4,0.1,0.25,0.8])
             f2.set_tick_labels_font(size='x-small')
@@ -219,6 +242,12 @@ for ii in xrange(len(filts)):
             f2.hide_ytick_labels()
             if opts.doForcedPhotometry:
                 f2.show_circles(ra,dec,fwhm/3600.0,zorder=99,linestyle='dashed', edgecolor='white')
+            else:
+                catfile = refimage.replace(".fits",".cat")
+                cat = np.loadtxt(catfile)
+                if cat.size:
+                    ras, decs, fwhms = cat[:,3], cat[:,4], cat[:,6]
+                    f2.show_circles(ras,decs,fwhms,zorder=99,linestyle='dashed', edgecolor='red')
             #f2.show_circles(cat2[:,3],cat2[:,4],cat2[:,6])
             f3 = aplpy.FITSFigure(imagesub, figure=fig, subplot=[0.7,0.1,0.25,0.8])
             f3.set_tick_labels_font(size='x-small')
@@ -228,6 +257,12 @@ for ii in xrange(len(filts)):
             f3.hide_ytick_labels()
             if opts.doForcedPhotometry:
                 f3.show_circles(ra,dec,fwhm/3600.0,zorder=99,linestyle='dashed', edgecolor='white')
+            else:
+                catfile = imagesub.replace(".fits",".cat")
+                cat = np.loadtxt(catfile)
+                if cat.size:
+                    ras, decs, fwhms = cat[:,3], cat[:,4], cat[:,6]
+                    f3.show_circles(ras,decs,fwhms,zorder=99,linestyle='dashed', edgecolor='red')
             #f3.show_circles(catsub[:,3],catsub[:,4],catsub[:,6])
             fig.canvas.draw()
             plotName = os.path.join(path_out_pair,'panels.pdf')
@@ -241,4 +276,4 @@ if opts.doPlots:
     if opts.doForcedPhotometry:
         ztfsub.plotting.plot_images(combinedimagefiles,plotName,ra=ra,dec=dec,fwhm=fwhm)
     else:
-        ztfsub.plotting.plot_images(combinedimagefiles,plotName)
+        ztfsub.plotting.plot_images(combinedimagefiles,plotName,catfiles=True)

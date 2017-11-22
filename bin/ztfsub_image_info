@@ -16,7 +16,7 @@ def parse_commandline():
     parser.add_option("-o","--outputDir",default="../output")
     parser.add_option("--ra",default=None,type=float)
     parser.add_option("--declination",default=None,type=float)
-    parser.add_option("--imagenum",default=504421,type=int)
+    parser.add_option("--imagenum",default=None)
 
     opts, args = parser.parse_args()
 
@@ -24,10 +24,10 @@ def parse_commandline():
 
 # Parse command line
 opts = parse_commandline()
-imagenum = opts.imagenum
+imagenumSplit = opts.imagenum.split("_")
+monthday,imagenum = int(imagenumSplit[0]), int(imagenumSplit[1])
 dataDir = opts.dataDir
 outputDir = opts.outputDir
-
 ztfDir = '%s/ztf'%dataDir
 
 linksFile = '%s/links.txt'%outputDir
@@ -36,7 +36,9 @@ links = [line.rstrip('\n') for line in open(linksFile)]
 images = []
 for link in links:
     linkSplit = link.split("/")
-    if imagenum == int(linkSplit[-2]):
+    imagenumlink = int(linkSplit[-2])
+    monthdaylink = int(linkSplit[-3])
+    if (imagenum == imagenumlink) and (monthday == monthdaylink):
         images.append(link)
 
 for image in images:

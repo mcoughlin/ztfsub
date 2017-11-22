@@ -33,13 +33,14 @@ def parse_commandline():
     parser.add_option("-s","--source",default="ztf")
     parser.add_option("--ra",default=None,type=float)
     parser.add_option("--declination",default=None,type=float)
-    parser.add_option("--imagenum1",default=438044,type=int)
-    parser.add_option("--imagenum2",default=436956,type=int)    
+    parser.add_option("--imagenum1",default=None)
+    parser.add_option("--imagenum2",default=None)    
     parser.add_option("--image_size",default=1000,type=int)
     parser.add_option("--doLinks",  action="store_true", default=False)
     parser.add_option("--doPlots",  action="store_true", default=False)
     parser.add_option("--doAstrometryNet",  action="store_true", default=False)
     parser.add_option("--doSubtractBackground",  action="store_true", default=False)
+    parser.add_option("--doOverwrite",  action="store_true", default=False)
 
     opts, args = parser.parse_args()
 
@@ -85,18 +86,20 @@ tiles = np.loadtxt(tilesFile,comments='%')
 
 if opts.source == "ztf":
     if not opts.ra == None:
-        path_out_dir='%s/%d_%d/%.5f_%.5f'%(outputDir,opts.imagenum1,opts.imagenum2,opts.ra,opts.declination)
+        path_out_dir='%s/%s_%s/%.5f_%.5f'%(outputDir,opts.imagenum1,opts.imagenum2,opts.ra,opts.declination)
     else:
-        path_out_dir='%s/%d_%d'%(outputDir,opts.imagenum1,opts.imagenum2)
-    if not os.path.isdir(path_out_dir):
-        os.makedirs(path_out_dir)
+        path_out_dir='%s/%s_%s'%(outputDir,opts.imagenum1,opts.imagenum2)
 elif (opts.source == "sdss") or (opts.source == "ps1"):
     if not opts.ra == None:
-        path_out_dir='%s/%d/%.5f_%.5f'%(outputDir,opts.imagenum1,opts.ra,opts.declination)
+        path_out_dir='%s/%s/%.5f_%.5f'%(outputDir,opts.imagenum1,opts.ra,opts.declination)
     else:
-        path_out_dir='%s/%d'%(outputDir,opts.imagenum1)
-    if not os.path.isdir(path_out_dir):
-        os.makedirs(path_out_dir)
+        path_out_dir='%s/%s'%(outputDir,opts.imagenum1)
+
+if opts.doOverwrite:
+    rm_command = "rm -rf %s"%path_out_dir
+    os.system(rm_command)    
+if not os.path.isdir(path_out_dir):
+    os.makedirs(path_out_dir)
 
 scienceimage = '%s/sci.fits'%(path_out_dir)
 refimage = '%s/ref.fits'%(path_out_dir)

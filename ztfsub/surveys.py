@@ -208,7 +208,11 @@ def get_ztf(opts,imagefile,imagenum):
     images = []
     for link in links:
         linkSplit = link.split("/")
-        if imagenum == int(linkSplit[-2]):
+        imagenumSplit = imagenum.split("_")
+        imageday = int(imagenumSplit[0])
+        imagedaynum = int(imagenumSplit[1])
+
+        if (imageday == int(linkSplit[-3])) and (imagedaynum == int(linkSplit[-2])):
             images.append(link)
 
     tilesFile = '%s/ZTF_Fields.txt'%opts.inputDir
@@ -271,7 +275,7 @@ def get_ztf(opts,imagefile,imagenum):
 
     return True
 
-def get_ptf(opts,imageDir):
+def get_ptf(opts,imageDir,ra=None,ra_size=None,dec=None,dec_size=None):
 
     ptfResampleDir = '%s/ptf_resample/%s'%(opts.dataDir,opts.field)
     if not os.path.isdir(ptfResampleDir):
@@ -284,6 +288,7 @@ def get_ptf(opts,imageDir):
     for image in images:
         imagefile = image.split("/")[-1]
         if "201603213319" in imagefile: continue
+        if "mask" in imagefile: continue
 
         hdulist=fits.open(image)
         header = hdulist[0].header
@@ -303,15 +308,14 @@ def get_ptf(opts,imageDir):
         raimages.append(raimage)
         decimages.append(decimage)
 
-    if not opts.ra == None:
-        ra = opts.ra
-    else:
+    if ra == None:
         ra = np.mean(raimages)
-
-    if not opts.declination == None:
-        dec = opts.declination
-    else:
+    if dec == None:
         dec = np.mean(decimages)
+    if ra_size == None:
+        ra_size = opts.image_size
+    if dec == None:
+        dec_size = opts.image_size
 
     coord = SkyCoord(ra*u.deg,dec*u.deg,frame='icrs')
 
@@ -319,7 +323,11 @@ def get_ptf(opts,imageDir):
 
     goodimages = True
     imagefiles = {}
-    Threshold  = 0.5
+
+    if ra_size > 200:
+        Threshold  = 10.0
+    else:
+        Threshold  = 0.5
     for filt in data.iterkeys():
         imagefile = "%s/ptf_%s.fits"%(imageDir,filt) 
         imagefiles[filt] = imagefile
@@ -335,7 +343,7 @@ def get_ptf(opts,imageDir):
 
         if len(Iids) == 0:
             print "No PTF images available... returning."
-            return False
+            return [], False
 
         fid = open(listfile,'w')
         for Iid in Iids:
@@ -343,7 +351,7 @@ def get_ptf(opts,imageDir):
             fid.write('%s\n'%(image))
         fid.close()
 
-        swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d -PIXEL_SCALE 1.0 -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml'%(listfile,opts.defaultsDir,ra,dec,opts.image_size,opts.image_size,imagefile,opts.tmpDir,ptfResampleDir,opts.tmpDir)
+        swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d -PIXEL_SCALE 1.0 -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml'%(listfile,opts.defaultsDir,ra,dec,ra_size,dec_size,imagefile,opts.tmpDir,ptfResampleDir,opts.tmpDir)
         os.system(swarp_command)
 
         # replace borders with NaNs in ref image if there are any that are == 0,

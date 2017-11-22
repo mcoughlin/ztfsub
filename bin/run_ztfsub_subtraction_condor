@@ -1,0 +1,221 @@
+
+import os, sys, optparse
+import random, string
+
+import numpy as np
+
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+
+from astroquery.vizier import Vizier
+
+from astropy.io import fits
+
+import ztfsub.utils, ztfsub.catalogs
+
+def parse_commandline():
+    """
+    Parse the options given on the command-line.
+    """
+    parser = optparse.OptionParser()
+
+    parser.add_option("--ztfsubDir",default="/home/mcoughlin/ZTF/ztfsub")
+    parser.add_option("--dataDir",default="data")
+    parser.add_option("-i","--inputDir",default="input")
+    parser.add_option("-o","--outputDir",default="output_condor")
+    parser.add_option("-d","--defaultsDir",default="defaults")
+
+    parser.add_option("--day",default=None)
+    parser.add_option("--imagenum",default=None,type=int)
+    parser.add_option("--fieldID",default=None,type=int)
+    
+    parser.add_option("--doLinks",  action="store_true", default=False)
+    parser.add_option("--doPlots",  action="store_true", default=False)
+    parser.add_option("--doSubmit",  action="store_true", default=False)
+
+    opts, args = parser.parse_args()
+
+    return opts
+
+# Parse command line
+opts = parse_commandline()
+inputDir = os.path.join(opts.ztfsubDir,opts.inputDir)
+outputDir = os.path.join(opts.ztfsubDir,opts.outputDir)
+defaultsDir = os.path.join(opts.ztfsubDir,opts.defaultsDir)
+dataDir = os.path.join(opts.ztfsubDir,opts.dataDir)
+
+ztfDir = '%s/ztf'%dataDir
+if not os.path.isdir(ztfDir):
+    os.makedirs(ztfDir)
+
+condorDir = '%s/condor'%outputDir
+condorlogsDir = '%s/condor/logs'%outputDir
+if not os.path.isdir(condorlogsDir):
+    os.makedirs(condorlogsDir)
+
+tilesFile = '%s/ZTF_Fields.txt'%inputDir
+tiles = np.loadtxt(tilesFile,comments='%')
+
+linksFile = '%s/links.txt'%outputDir
+if not os.path.isdir(outputDir):
+    os.makedirs(outputDir)
+if opts.doLinks:
+    if os.path.isfile(linksFile):
+        links = [line.rstrip('\n') for line in open(linksFile)]
+        links = links + ztfsub.utils.get_links(minday = 1101, day=int(opts.day))
+    else:
+        links = ztfsub.utils.get_links(minday = 1101)
+    fid = open(linksFile,'w')
+    for link in links:
+        fid.write("%s\n"%link)
+    fid.close()
+links = [line.rstrip('\n') for line in open(linksFile)]
+
+images = []
+imagesdata = []
+
+for ii,link in enumerate(links):
+    imagefile = link.split("/")[-1]
+    linkSplit = link.split("/")
+    imagenum = int(linkSplit[-2])
+    imageSplit = imagefile.replace(".fits","").split("_")
+    fieldID = int(imageSplit[-6])
+    monthday = int(linkSplit[-3])
+
+    if monthday < 1100: continue
+    if fieldID > 10000: continue
+
+    baselink = "/".join(link.split("/")[:-1]) + "/"
+    images.append([imagenum,fieldID,baselink,monthday])
+    imagesdata.append([imagenum,monthday,ii])
+imagesdata = np.array(imagesdata)
+
+data = {}
+images = np.vstack({tuple(row) for row in images})
+for image in images:
+    imagenum,fieldID,baselink,monthday = image
+    idx = np.where((imagesdata[:,0] == int(imagenum)) & (imagesdata[:,1] == int(monthday)))[0]
+    ii = np.min(imagesdata[idx,2])
+ 
+    if not fieldID in data:
+        data[fieldID] = {}
+        data[fieldID]["imagenums"] = []
+        data[fieldID]["dates"] = []
+        data[fieldID]["indexes"] = []
+        data[fieldID]["links"] = []
+
+    data[fieldID]["imagenums"].append(int(imagenum))
+    data[fieldID]["dates"].append(int(monthday))
+    data[fieldID]["indexes"].append(int(ii))
+    data[fieldID]["links"].append(baselink)
+
+for fieldID in data.iterkeys():
+    data[fieldID]["imagenums"] = np.array(data[fieldID]["imagenums"])
+    data[fieldID]["dates"] = np.array(data[fieldID]["dates"])
+    data[fieldID]["indexes"] = np.array(data[fieldID]["indexes"])
+    data[fieldID]["links"] = np.array(data[fieldID]["links"])
+
+    idxs = np.argsort(data[fieldID]["dates"])
+    data[fieldID]["imagenums"] = data[fieldID]["imagenums"][idxs]
+    data[fieldID]["dates"] = data[fieldID]["dates"][idxs]
+    data[fieldID]["indexes"] = data[fieldID]["indexes"][idxs]
+    data[fieldID]["links"] = data[fieldID]["links"][idxs]
+
+job_number = 0
+dagfile = os.path.join(condorDir,'condor.dag')
+fid = open(dagfile,'w')
+
+days = [int(x) for x in opts.day.split(",")]
+fieldIDs = sorted(data.iterkeys())
+
+for fieldID in fieldIDs:
+
+    for imagenum,monthday in zip(data[fieldID]["imagenums"],data[fieldID]["dates"]):
+
+        if not opts.fieldID == None:
+            if not opts.fieldID == int(fieldID): 
+                continue
+        if not opts.imagenum == None:
+            if not opts.imagenum == int(imagenum): 
+                continue 
+        if not opts.day == None:
+            if not int(monthday) in days:
+                continue        
+
+        idx = np.where((np.array(images[:,0]).astype(int) == int(imagenum)) & ((np.array(images[:,3]).astype(int) == int(monthday))))[0]
+        link = images[idx,2][0]
+        links = ztfsub.utils.get_fits_from_link(link)
+        raimages, decimages = ztfsub.utils.download_images_from_links(links,ztfDir)
+
+        #idx = np.where(fieldID == tiles[:,0])[0]
+        #tile = tiles[idx][0]
+        #fieldID, ra, dec = tile[0], tile[1], tile[2]
+
+        if len(raimages) == 0: continue
+
+        ramin, ramax = np.min(raimages), np.max(raimages)
+        decmin, decmax = np.min(decimages), np.max(decimages)
+        ra, dec = (ramin+ramax)/2, (decmin+decmax)/2
+        rawidth, decwidth = np.abs(ramin-ramax), np.abs(decmin-decmax)
+  
+        imagenum1 = "%d_%d"%(int(monthday),int(imagenum))
+        imagenum2 = "%d_%d"%(int(data[fieldID]["dates"][0]),int(data[fieldID]["imagenums"][0]))
+        link = data[fieldID]["links"][0]
+        links = ztfsub.utils.get_fits_from_link(link)
+        rarefimages, decrefimages = ztfsub.utils.download_images_from_links(links,ztfDir)
+
+        #ragalaxies, decgalaxies = ztfsub.catalogs.get_glade(ra,dec,rawidth,decwidth)
+        ragalaxies, decgalaxies = ztfsub.catalogs.get_clu(ra,dec,rawidth,decwidth,dataDir)
+        for ragalaxy, decgalaxy in zip(ragalaxies, decgalaxies):
+            print ragalaxy, decgalaxy
+            print stop
+            if (len(data[fieldID]["imagenums"]) == 1) or (int(imagenum) == int(data[fieldID]["imagenums"][0])):
+                #imagenum1 = int(imagenum)
+                continue
+
+                path_out_dir='%s/%d/%.5f_%.5f'%(outputDir,imagenum1,ragalaxy,decgalaxy)
+                if os.path.isdir(path_out_dir): continue
+
+                #system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d --ra %.5f --declination %.5f --image_size 200 --source sdss --outputDir %s --doSubtractBackground"%(imagenum1,ragalaxy, decgalaxy, opts.outputDir)
+            else:
+                path_out_dir='%s/%s_%s/%.5f_%.5f'%(outputDir,imagenum1,imagenum2,ragalaxy,decgalaxy)
+                if os.path.isdir(path_out_dir): continue
+
+                #system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d --imagenum2 %d --ra %.5f --declination %.5f --image_size 200 --outputDir %s --doSubtractBackground"%(imagenum1,imagenum2,ragalaxy, decgalaxy,opts.outputDir)
+                #os.system(system_command)
+
+            fid.write('JOB %d condor.sub\n'%(job_number))
+            fid.write('RETRY %d 3\n'%(job_number))
+            fid.write('VARS %d jobNumber="%d" imagenum1="%s" imagenum2="%s" ra="%.5f" declination="%.5f" outputDir="%s" inputDir="%s" dataDir="%s" defaultsDir="%s"\n'%(job_number,job_number,imagenum1,imagenum2,ragalaxy,decgalaxy,outputDir,inputDir,dataDir,defaultsDir))
+            fid.write('\n\n')
+
+            job_number = job_number + 1
+
+fid.close()
+
+subfile = os.path.join(condorDir,'condor.sub')
+fid = open(subfile,'w')
+fid.write('executable = %s/bin/ztfsub_subtraction\n'%(opts.ztfsubDir))
+fid.write('output = logs/out.$(jobNumber)\n')
+fid.write('error = logs/err.$(jobNumber)\n')
+if opts.doPlots:
+    fid.write('arguments = --imagenum1 $(imagenum1) --imagenum2 $(imagenum2) --ra $(ra) --declination $(declination) --doPlots --inputDir $(inputDir) --outputDir $(outputDir) --dataDir $(dataDir) --defaultsDir $(defaultsDir) --image_size 200 --doOverwrite --doSubtractBackground\n')
+else:
+    fid.write('arguments = --imagenum1 $(imagenum1) --imagenum2 $(imagenum2) --ra $(ra) --declination $(declination) --inputDir $(inputDir) --outputDir $(outputDir) --dataDir $(dataDir) --defaultsDir $(defaultsDir) --image_size 200 --doOverwrite --doSubtractBackground\n')
+fid.write('requirements = OpSys == "LINUX"\n')
+fid.write('request_memory = 1024\n')
+fid.write('request_cpus = 1\n')
+fid.write('accounting_group = ligo.dev.o1.burst.allsky.stamp\n')
+fid.write('notification = never\n')
+fid.write('getenv = true\n')
+N = 10
+fid.write('log = /usr1/%s/ztfsub-condor-%s.log\n'%(os.environ["USER"],''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(N))))
+fid.write('+MaxHours = 24\n')
+fid.write('universe = vanilla\n')
+fid.write('queue 1\n')
+fid.close()
+
+if opts.doSubmit:
+    condor_command = "source %s/setup.sh; cd %s; condor_submit_dag -maxjobs 500 condor.dag"%(opts.ztfsubDir,condorDir)
+    print condor_command
+    os.system(condor_command)

@@ -2,7 +2,7 @@
 import os, sys, glob
 
 outputDir = "../output"
-outputDir = "../output_clu"
+outputDir = "../output_condor_clu"
 eventDirs = glob.glob("%s/*"%outputDir)
 
 combinedDir = "../combined"
@@ -13,7 +13,7 @@ if not os.path.isdir(combinedDir):
 for eventDir in eventDirs:
     transientDirs = glob.glob("%s/*"%eventDir)
     for transientDir in transientDirs:
-        pdffile = "%s/refs/panels.pdf"%transientDir
+        pdffile = "%s/pairs/panels.pdf"%transientDir
         if not os.path.isfile(pdffile): continue
         transientDirSplit = transientDir.split("/")
         transientfile = "%s/%s_%s.pdf"%(combinedDir,transientDirSplit[-2],transientDirSplit[-1])

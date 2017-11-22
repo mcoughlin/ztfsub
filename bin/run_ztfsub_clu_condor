@@ -1,0 +1,149 @@
+
+import os, sys, optparse, glob
+import random, string
+
+import numpy as np
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+
+from astroquery.vizier import Vizier
+
+from astropy.io import fits
+
+import ztfsub.utils
+
+def parse_commandline():
+    """
+    Parse the options given on the command-line.
+    """
+    parser = optparse.OptionParser()
+
+    parser.add_option("--ztfsubDir",default="/home/mcoughlin/ZTF/ztfsub")
+
+    parser.add_option("-f","--field",default="p3967")
+    parser.add_option("--dataDir",default="data")
+    parser.add_option("-o","--outputDir",default="output_condor_clu")
+    parser.add_option("-d","--defaultsDir",default="defaults")
+
+    parser.add_option("--doPlots",  action="store_true", default=False)
+
+    opts, args = parser.parse_args()
+
+    return opts
+
+# Parse command line
+opts = parse_commandline()
+outputDir = os.path.join(opts.ztfsubDir,opts.outputDir)
+defaultsDir = os.path.join(opts.ztfsubDir,opts.defaultsDir)
+dataDir = os.path.join(opts.ztfsubDir,opts.dataDir)
+
+condorDir = '%s/condor'%outputDir
+condorlogsDir = '%s/condor/logs'%outputDir
+if not os.path.isdir(condorlogsDir):
+    os.makedirs(condorlogsDir)
+
+images = glob.glob('%s/ptf/%s/*.fits'%(dataDir,opts.field))
+raimages, decimages = [], []
+for image in images:
+    imagefile = image.split("/")[-1]
+    if "201603213319" in imagefile: continue
+
+    try:
+        raimage, decimage = ztfsub.utils.get_radec_from_wcs(image)
+    except:
+        outfile = "/tmp/headers.fits"
+        hdulist=fits.open(image)
+        size = hdulist[0].data.shape
+        swarpcmd='swarp %s -CENTER_TYPE ALL -PIXELSCALE_TYPE MEDIAN -IMAGE_SIZE "%i, %i" -SUBTRACT_BACK N -IMAGEOUT_NAME %s -COPY_KEYWORDS FILTER' % (image, size[0], size[1],outfile)
+        os.system(swarpcmd)
+        cp_command = "cp %s %s"%(outfile,image)
+        os.system(cp_command)
+
+        raimage, decimage = ztfsub.utils.get_radec_from_wcs(image)
+
+    raimages.append(raimage)
+    decimages.append(decimage)
+
+ramin, ramax = np.min(raimages), np.max(raimages)
+decmin, decmax = np.min(decimages), np.max(decimages)
+
+datafile = "%s/clu/u3967_allsrcs_raw.fits"%dataDir
+hdulist=fits.open(datafile)
+header = hdulist[1].header
+data = hdulist[1].data
+
+path_out_dir_base='%s/%s'%(outputDir,opts.field)
+if not os.path.isdir(path_out_dir_base):
+    os.makedirs(path_out_dir_base)
+
+filts = ["Ha656","Ha663","Ha672","Ha681"]
+#radecs = ["193.85600_28.47310","193.88700_28.80110","194.09000_28.55380","194.09300_28.54360","194.13200_28.66870","194.14900_28.53260","194.25500_28.47140","194.26000_28.46840","194.36500_28.75540","194.42100_28.40790","194.44500_28.58540","194.80400_28.43720","195.16900_27.65270","195.20900_27.66140","195.22000_27.59550","195.23500_28.46160","195.37400_28.68470","196.13200_27.63420","196.14600_27.74670","196.15300_28.81140","196.34900_28.56770","196.38700_27.72610","196.44600_27.73820","196.50400_28.59260","196.78600_28.42580","196.80400_28.54190","196.82500_28.37500","196.82600_28.38030","196.82800_28.58500","196.99800_28.68300","196.99900_28.57510","196.99900_28.57670","196.99900_28.70410","196.99900_28.72220","197.00100_28.71970","197.07600_28.36180","197.19500_28.57290"]
+radecs = []
+
+job_number = 0
+dagfile = os.path.join(condorDir,'condor.dag')
+fid = open(dagfile,'w')
+
+for row in data:
+    ragalaxy, decgalaxy = row[6], row[7]
+    ha1magerr, ha1mag, ha2magerr, ha2mag, ha3magerr, ha3mag, ha4magerr, ha4mag =        row[17], row[18], row[19], row[20], row[21], row[22], row[23], row[24]
+    csig1, csig2, csig3, csig4 = row[110], row[111], row[112], row[113]
+    fwhm1, fwhm2, fwhm3, fwhm4 = row[72], row[73], row[74], row[75]
+    fwhm1, fwhm2, fwhm3, fwhm4 = 6.0, 6.0, 6.0, 6.0
+    zsdss, zned, zclu  = row[119], row[120], row[121]
+    haew, haewerr = row[122], row[123]
+    visclass = row[117]
+
+    if not ((ragalaxy > ramin-0.1) and (ragalaxy < ramax+0.1)): continue
+    if not ((decgalaxy > decmin-0.1) and (decgalaxy < decmax+0.1)): continue
+    if not ((zsdss > 0.0) and (zsdss < 0.048)): continue
+    if not visclass: continue
+
+    maxcsig = np.max([csig1, csig2, csig3, csig4])
+    if maxcsig < 1: continue
+    if "%.5f_%.5f"%(ragalaxy,decgalaxy) in radecs: continue
+
+    fwhms = "%.2f,%.2f,%.2f,%.2f"%(fwhm1, fwhm2, fwhm3, fwhm4)
+
+    path_out_dir='%s/%s/%.5f_%.5f'%(outputDir,opts.field,ragalaxy,decgalaxy)
+    path_out_pairs='%s/pairs'%path_out_dir
+    path_out_refs='%s/refs'%path_out_dir
+
+    if os.path.isdir(path_out_dir): continue
+
+    fid.write('JOB %d condor.sub\n'%(job_number))
+    fid.write('RETRY %d 3\n'%(job_number))
+    fid.write('VARS %d jobNumber="%d" ra="%.5f" declination="%.5f" fwhm="%s" field="%s" outputDir="%s" dataDir="%s" defaultsDir="%s"\n'%(job_number,job_number,ragalaxy,decgalaxy,fwhms,opts.field,outputDir,dataDir,defaultsDir))
+    fid.write('\n\n')
+
+    job_number = job_number + 1
+
+fid.close()
+
+subfile = os.path.join(condorDir,'condor.sub')
+fid = open(subfile,'w')
+fid.write('executable = %s/bin/ztfsub_clu\n'%(opts.ztfsubDir))
+fid.write('output = logs/out.$(jobNumber)\n')
+fid.write('error = logs/err.$(jobNumber)\n')
+if opts.doPlots:
+    fid.write('arguments = --ra $(ra) --declination $(declination) --fwhm $(fwhm)   --doPlots --outputDir $(outputDir) --dataDir $(dataDir) --defaultsDir $(defaultsDir) --field $(field) --image_size 200 --doOverwrite --doForcedPhotometry --doSubtractBackground\n')
+else:
+    fid.write('arguments = --ra $(ra) --declination $(declination) --fwhm $(fwhm) --outputDir $(outputDir) --dataDir $(dataDir) --defaultsDir $(defaultsDir) --field $(field) --image_size 200 --doOverwrite --doForcedPhotometry --doSubtractBackground\n')
+fid.write('requirements = OpSys == "LINUX"\n')
+fid.write('request_memory = 1024\n')
+fid.write('request_cpus = 1\n')
+fid.write('accounting_group = ligo.dev.o1.burst.allsky.stamp\n')
+fid.write('notification = never\n')
+fid.write('getenv = true\n')
+N = 10
+fid.write('log = /usr1/%s/ztfsub-condor-%s.log\n'%(os.environ["USER"],''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(N))))
+fid.write('+MaxHours = 24\n')
+fid.write('universe = vanilla\n')
+fid.write('queue 1\n')
+fid.close()
+

@@ -21,10 +21,22 @@ SUBREGION = "[1:1024,1:1024]"
 
 def get_radec_from_wcs(fitsfile):
     header = fits.getheader(fitsfile)
-
+ 
     w = WCS(header)
     ra, dec = w.wcs_pix2world(float(header['NAXIS1'])/2.0, float(header['NAXIS2'])/2.0,1)
     return ra, dec
+
+def get_radec_limits_from_wcs(fitsfile):
+    header = fits.getheader(fitsfile)
+
+    w = WCS(header)
+    ra1, dec1 = w.wcs_pix2world(0,0,1)
+    ra2, dec2 = w.wcs_pix2world(float(header['NAXIS1']), float(header['NAXIS2']),1) 
+
+    ra_min, ra_max = np.min([ra1,ra2]), np.max([ra1,ra2])
+    dec_min, dec_max = np.min([dec1,dec2]), np.max([dec1,dec2])
+
+    return [ra_min,ra_max], [dec_min,dec_max]
 
 def get_head(imagefile,keywords,hdunum=0):
 
@@ -190,7 +202,7 @@ def p60sdsssub(opts, inlis, refimage, ot, distortdeg=1, scthresh1=3.0,
         pix = get_head(refimage,['PIXSCALE'])[0]
     except:
         FILE0001 = get_head(refimage,['FILE0001'])[0]
-        if "ztf" in FILE0001:
+        if ("ztf" in FILE0001) or ("PTF" in FILE0001):
             pix = 1.0
         else:
             pix=0.396
@@ -311,7 +323,7 @@ def forcedphotometry(imagefile,ra,dec,fwhm=5.0):
     fid.write('%.5f %.5f\n'%(mag,magerr))
     fid.close()
 
-def get_links():
+def get_links(minday = -1, day = None):
     links = []
 
     url = "https://ztfweb.ipac.caltech.edu/ztf/archive/sci/2017/"
@@ -322,6 +334,11 @@ def get_links():
         if "?" in l[2]: continue
         if not url in l[2]: continue
         url2 = l[2]
+        thisday = int(url2.split("/")[-2])
+        if thisday < minday: continue
+        if not day == None:
+            if not thisday == day: continue
+
         doc2 = fromstring(requests.get(url2,auth=(os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"])).content)
         doc2.make_links_absolute(base_url=url2)
         for m in doc2.iterlinks():
@@ -348,3 +365,21 @@ def get_fits_from_link(link):
         if link not in url4: continue
         links.append(url4)
     return links
+
+def download_images_from_links(links,ztfDir):
+
+    raimages, decimages = [], []
+    for image in links:
+        imagefinal = '%s/%s'%(ztfDir,image.split("/")[-1])
+        if not os.path.isfile(imagefinal):
+            wget_command = "wget %s --user %s --password %s -O %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"],imagefinal)
+            os.system(wget_command)
+
+        if not os.path.isfile(imagefinal): continue
+
+        raimage, decimage = get_radec_from_wcs(imagefinal)
+        raimages.append(raimage)
+        decimages.append(decimage)
+
+    return raimages, decimages
+

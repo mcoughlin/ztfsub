@@ -1,0 +1,112 @@
+
+import os, sys, optparse, glob
+
+import numpy as np
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+
+from astroquery.vizier import Vizier
+
+from astropy.io import fits
+
+import ztfsub.utils
+
+def parse_commandline():
+    """
+    Parse the options given on the command-line.
+    """
+    parser = optparse.OptionParser()
+
+    parser.add_option("-f","--field",default="p3967")
+    parser.add_option("--dataDir",default="../data")
+    parser.add_option("-r","--runDir",default="../runs")
+    parser.add_option("-i","--inputDir",default="../input")
+    parser.add_option("-o","--outputDir",default="../output_clu_ccd")
+    parser.add_option("-d","--defaultsDir",default="../defaults")
+
+    parser.add_option("--doRun",  action="store_true", default=False)
+
+    opts, args = parser.parse_args()
+
+    return opts
+
+# Parse command line
+opts = parse_commandline()
+inputDir = opts.inputDir
+outputDir = opts.outputDir
+defaultsDir = opts.defaultsDir
+dataDir = opts.dataDir
+runDir = opts.runDir
+
+images = glob.glob('%s/ptf/%s/*.fits'%(opts.dataDir,opts.field))
+radecimages = []
+doFix = False
+for image in images:
+    imagefile = image.split("/")[-1]
+    if "201603213319" in imagefile: continue
+    if not "f11" in imagefile: continue
+    if "mask" in imagefile: continue
+    
+    if doFix:
+        maskfile = image.replace("scie","mask")
+        hdulist=fits.open(image)
+        masklist=fits.open(maskfile)
+    
+        try:
+            hdulist[0].data[masklist[0].data.astype(int)>0]=np.nan
+        except:
+            hdulist[0].data[masklist[0].data.T.astype(int)>0]=np.nan
+        hdulist.writeto(image,overwrite=True)
+
+        outfile = "/tmp/headers.fits"
+        hdulist=fits.open(image)
+        size = hdulist[0].data.shape
+        swarpcmd='swarp %s -c %s/swarp.conf -CENTER_TYPE ALL -IMAGE_SIZE "%i, %i" -IMAGEOUT_NAME %s -COPY_KEYWORDS FILTER' % (image, defaultsDir, size[0], size[1],outfile)
+        os.system(swarpcmd)
+        cp_command = "cp %s %s"%(outfile,image)
+        os.system(cp_command)
+
+    ras, decs = ztfsub.utils.get_radec_limits_from_wcs(image)
+
+    radecimages.append([ras[0],ras[1],decs[0],decs[1]])
+
+path_out_dir_base='%s/%s'%(opts.outputDir,opts.field)
+if not os.path.isdir(path_out_dir_base):
+    os.makedirs(path_out_dir_base)
+
+filts = ["Ha656","Ha663","Ha672","Ha681"]
+
+combineddir = '%s/%s/combine'%(opts.outputDir,opts.field)
+if not os.path.isdir(combineddir):
+    os.makedirs(combineddir)
+
+for radecimage in radecimages:
+    ramin, ramax, decmin, decmax = radecimage
+    ra = "%.5f,%.5f"%(ramin,ramax)
+    dec = "%.5f,%.5f"%(decmin,decmax)
+
+    path_out_dir='%s/%s/%s_%s'%(outputDir,opts.field,"_".join(ra.split(",")),"_".join(dec.split(",")))
+    path_out_pairs='%s/pairs'%path_out_dir
+    path_out_refs='%s/refs'%path_out_dir
+
+    if opts.doRun:
+        #if os.path.isdir(path_out_dir): continue
+
+        system_command = "python ztfsub_clu --doPlots --field %s --ra %s --declination %s --outputDir %s --doSubtractBackground"%(opts.field,ra,dec,opts.outputDir)
+        print system_command
+        #print stop
+        #continue
+        os.system(system_command)
+        #print stop
+
+    if not os.path.isfile(os.path.join(path_out_pairs,'Ha656_Ha663/sci.pdf')):
+        rm_command = "rm -rf %s"%path_out_dir
+        os.system(rm_command)
+        continue
+
+
