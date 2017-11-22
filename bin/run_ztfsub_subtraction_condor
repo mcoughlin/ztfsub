@@ -167,8 +167,6 @@ for fieldID in fieldIDs:
         #ragalaxies, decgalaxies = ztfsub.catalogs.get_glade(ra,dec,rawidth,decwidth)
         ragalaxies, decgalaxies = ztfsub.catalogs.get_clu(ra,dec,rawidth,decwidth,dataDir)
         for ragalaxy, decgalaxy in zip(ragalaxies, decgalaxies):
-            print ragalaxy, decgalaxy
-            print stop
             if (len(data[fieldID]["imagenums"]) == 1) or (int(imagenum) == int(data[fieldID]["imagenums"][0])):
                 #imagenum1 = int(imagenum)
                 continue
