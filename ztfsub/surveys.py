@@ -364,3 +364,66 @@ def get_ptf(opts,imageDir,ra=None,ra_size=None,dec=None,dec_size=None):
         hdulist.writeto(imagefile,overwrite=True)
 
     return imagefiles, goodimages
+
+def get_p60(opts,imagefile,imagenum):
+
+    p60Dir = '%s/p60'%opts.dataDir
+    if not os.path.isdir(p60Dir):
+        os.makedirs(p60Dir)
+
+    p60ResampleDir = '%s/p60_resample'%opts.dataDir
+    if not os.path.isdir(p60ResampleDir):
+        os.makedirs(p60ResampleDir)
+
+
+    N = 10
+    listfile = opts.tmpDir + "/p60_list_" + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(N)) + '.txt'
+
+    baseurl = "/scr2/sedm/phot"
+    imageSplit = imagenum.split("_")
+    imagebase = imageSplit[0].replace("rc","")   
+  
+    image = os.path.join(baseurl,imagebase,"%s.fits"%imagenum)
+
+    imagefinal = '%s/%s'%(p60Dir,image.split("/")[-1])
+    if not os.path.isfile(imagefinal):
+        scp_command = "scp pharos.caltech.edu:%s %s"%(image,imagefinal)
+        os.system(scp_command)
+
+        hdulist=fits.open(imagefinal)
+        hdulist[0].header["CTYPE2"] = "DEC--TAN"
+        hdulist[0].header["EQUINOX"]  = 2000.0
+        hdulist[0].header["CRVAL1"] = hdulist[0].header["CRVAL1"] + 1.75/60.0
+        hdulist[0].header["CRVAL2"] = hdulist[0].header["CRVAL2"] + 1.75/60.0
+        hdulist.writeto(imagefinal,overwrite=True)
+    raimage, decimage = ztfsub.utils.get_radec_from_wcs(imagefinal)
+
+    fid = open(listfile,'w')
+    fid.write('%s\n'%imagefinal)
+    fid.close()
+
+    if not opts.ra == None:
+        ra = opts.ra
+    else:
+        ra = raimage
+
+    if not opts.declination == None:
+        dec = opts.declination
+    else:
+        dec = decimage
+
+    cp_command = "cp %s %s"%(imagefinal,imagefile)
+    os.system(cp_command)
+
+    hdulist=fits.open(imagefinal)
+    size = hdulist[0].data.shape
+    swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml'%(listfile,opts.defaultsDir,ra,dec,opts.image_size,opts.image_size,imagefile,opts.tmpDir,p60ResampleDir,opts.tmpDir)
+    #swarp_command ='swarp %s -c %s/swarp.conf -CENTER_TYPE ALL -IMAGE_SIZE "%i, %i" -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml' % (imagefinal, opts.defaultsDir, size[0], size[1], imagefile, opts.tmpDir,p60ResampleDir,opts.tmpDir)
+    os.system(swarp_command)
+
+    # replace borders with NaNs in ref image if there are any that are == 0,
+    hdulist=fits.open(imagefile)
+    hdulist[0].data[hdulist[0].data==0]=np.nan
+    hdulist.writeto(imagefile,overwrite=True)
+
+    return True

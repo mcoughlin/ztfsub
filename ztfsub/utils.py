@@ -206,7 +206,7 @@ def p60sdsssub(opts, inlis, refimage, ot, distortdeg=1, scthresh1=3.0,
             pix = 1.0
         else:
             pix=0.396
-
+ 
     for image in images:
 
         root=image.split('.fits')[0]
