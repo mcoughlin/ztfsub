@@ -15,6 +15,8 @@ def get_glade(ra,dec,rawidth,decwidth):
                                      frame='icrs'),
                                      width=[rawidth*u.deg,decwidth*u.deg],
                                      catalog=['VII/275'])
+    if not result: 
+        return [], []
 
     for table_name in result.keys():
         table = result[table_name]

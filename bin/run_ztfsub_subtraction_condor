@@ -164,8 +164,8 @@ for fieldID in fieldIDs:
         links = ztfsub.utils.get_fits_from_link(link)
         rarefimages, decrefimages = ztfsub.utils.download_images_from_links(links,ztfDir)
 
-        #ragalaxies, decgalaxies = ztfsub.catalogs.get_glade(ra,dec,rawidth,decwidth)
-        ragalaxies, decgalaxies = ztfsub.catalogs.get_clu(ra,dec,rawidth,decwidth,dataDir)
+        ragalaxies, decgalaxies = ztfsub.catalogs.get_glade(ra,dec,rawidth,decwidth)
+        #ragalaxies, decgalaxies = ztfsub.catalogs.get_clu(ra,dec,rawidth,decwidth,dataDir)
         for ragalaxy, decgalaxy in zip(ragalaxies, decgalaxies):
             if (len(data[fieldID]["imagenums"]) == 1) or (int(imagenum) == int(data[fieldID]["imagenums"][0])):
                 #imagenum1 = int(imagenum)

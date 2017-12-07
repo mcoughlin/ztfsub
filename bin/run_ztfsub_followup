@@ -1,0 +1,75 @@
+
+import os, sys, optparse
+
+import numpy as np
+
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+
+from astroquery.vizier import Vizier
+
+from astropy.io import fits
+
+import ztfsub.utils
+
+def parse_commandline():
+    """
+    Parse the options given on the command-line.
+    """
+    parser = optparse.OptionParser()
+
+    parser.add_option("--dataDir",default="../data")
+    parser.add_option("-r","--runDir",default="../runs")
+    parser.add_option("-i","--inputDir",default="../input")
+    parser.add_option("-o","--outputDir",default="../output")
+    parser.add_option("-d","--defaultsDir",default="../defaults")
+
+    parser.add_option("--day",default=None,type=int)
+    parser.add_option("--imagenum",default=None,type=int)
+    parser.add_option("--fieldID",default=None,type=int)
+    
+    parser.add_option("--doCopy",  action="store_true", default=False)
+    parser.add_option("--doLinks",  action="store_true", default=False)
+
+    opts, args = parser.parse_args()
+
+    return opts
+
+# Parse command line
+opts = parse_commandline()
+inputDir = opts.inputDir
+outputDir = opts.outputDir
+defaultsDir = opts.defaultsDir
+dataDir = opts.dataDir
+runDir = opts.runDir
+
+ztfDir = '%s/ztf'%dataDir
+if not os.path.isdir(ztfDir):
+    os.makedirs(ztfDir)
+
+tilesFile = '%s/ZTF_Fields.txt'%inputDir
+tiles = np.loadtxt(tilesFile,comments='%')
+
+linksFile = '%s/links.txt'%outputDir
+if not os.path.isdir(outputDir):
+    os.makedirs(outputDir)
+if opts.doLinks:
+    links = ztfsub.utils.get_links()
+    fid = open(linksFile,'w')
+    for link in links:
+        fid.write("%s\n"%link)
+    fid.close()
+links = [line.rstrip('\n') for line in open(linksFile)]
+
+followupFile = "followup.dat"
+lines = [line.rstrip('\n') for line in open(followupFile)]
+
+for line in lines:
+    lineSplit = line.split("_")
+    day1, imagenum1 = int(lineSplit[0]), int(lineSplit[1])
+    day2, imagenum2 = int(lineSplit[2]), int(lineSplit[3])
+    ra, declination = float(lineSplit[4]), float(lineSplit[5])
+
+    system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d_%d --ra %.5f --declination %.5f --image_size 200 --source2 ps1 --outputDir %s --doSubtractBackground"%(day1,imagenum1,ra, declination, opts.outputDir)
+    os.system(system_command)
+
