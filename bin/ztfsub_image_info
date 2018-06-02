@@ -42,11 +42,13 @@ for link in links:
         images.append(link)
 
 for image in images:
-    imagefile = image.split("/")[-1]
-    imageSplit = imagefile.replace(".fits","").split("_")
-    fieldID = int(imageSplit[-6])
+    imageSplit = image.split("/")
+    imagefile = imageSplit[-1]
+    imagefileSplit = imagefile.replace(".fits","").split("_")
+    fieldID = int(imagefileSplit[-6])
+    year, day = imageSplit[-4], imageSplit[-3]
 
-    imagepath = "%s/%s"%(ztfDir,imagefile)
+    imagepath = "%s/%s%s/%s"%(ztfDir,year,day,imagefile)
     if fieldID > 90000: continue
 
     hdulist=fits.open(imagepath)

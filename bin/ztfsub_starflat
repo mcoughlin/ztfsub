@@ -1,0 +1,144 @@
+
+import os, sys, optparse, shutil
+import glob
+import numpy as np
+from matplotlib import pyplot as plt
+import matplotlib.patches as patches
+
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+from astropy.table import Table
+
+from astroquery.vizier import Vizier
+
+def parse_commandline():
+    """
+    Parse the options given on the command-line.
+    """
+    parser = optparse.OptionParser()
+
+    #parser.add_option("-i","--inputfile",default="../data/ztf_starflats/ex1800_grid_centers.txt")
+    parser.add_option("-i","--inputfile",default="../data/ztf_starflats/ex3k_grid_centers.txt")
+    parser.add_option("-o","--outputDir",default="../output_starflat")
+
+    opts, args = parser.parse_args()
+
+    return opts
+
+def gaia_query(ra_deg, dec_deg, rad_deg, maxmag=20, 
+               maxsources=10000): 
+    """
+    Query Gaia DR1 @ VizieR using astroquery.vizier
+    parameters: ra_deg, dec_deg, rad_deg: RA, Dec, field 
+                                          radius in degrees
+                maxmag: upper limit G magnitude (optional)
+                maxsources: maximum number of sources
+    returns: astropy.table object
+    """
+    vquery = Vizier(columns=['Source', 'RA_ICRS', 'DE_ICRS', 
+                             'phot_g_mean_mag'], 
+                    column_filters={"phot_g_mean_mag": 
+                                    ("<%f" % maxmag)}, 
+                    row_limit = maxsources) 
+ 
+    field = SkyCoord(ra=ra_deg, dec=dec_deg, 
+                           unit=(u.deg, u.deg), 
+                           frame='icrs')
+    return vquery.query_region(field, 
+                               width=("%fd" % rad_deg), 
+                               catalog="I/337/gaia")[0] 
+
+def get_tiles(ra_pointing, dec_pointing):
+
+    pixel_size = 15 # microns
+    plate_scale = 1 # arcsec/pixel
+    plate_scale_deg = plate_scale / 3600.0
+    tile_size = [6144,6160] # pixels    
+    gap_size = np.array([7,10])/(1e-3*pixel_size) # pixels
+
+    idxs = [-3/2,-1/2,1/2,3/2]
+    tiles = np.zeros((len(idxs),len(idxs),2))
+    for i,idx in enumerate(idxs):
+        for j,idy in enumerate(idxs):
+            ra_center = ra_pointing + idx*(tile_size[0]+gap_size[0])*plate_scale_deg
+            dec_center = dec_pointing + idy*(tile_size[1]+gap_size[1])*plate_scale_deg
+            tiles[i,j,0] = ra_center
+            tiles[i,j,1] = dec_center
+
+    return tiles
+
+# Parse command line
+opts = parse_commandline()
+outputDir = opts.outputDir
+inputfile = opts.inputfile
+
+if not os.path.isdir(outputDir):
+    os.makedirs(outputDir)
+
+pointings = np.loadtxt(inputfile,skiprows=1)
+ra_deg, dec_deg, rad_deg = pointings[0,0], pointings[0,1], 10.0
+
+result = gaia_query(ra_deg, dec_deg, rad_deg, maxmag=10,
+               maxsources=10000) 
+
+ra, dec, mag = result["RA_ICRS"], result["DE_ICRS"], result["__Gmag_"]
+
+plate_scale = 1 # arcsec/pixel
+plate_scale_deg = plate_scale / 3600.0
+tile_size = [6144,6160] # pixels
+ra_width = tile_size[0]*plate_scale_deg
+dec_width = tile_size[1]*plate_scale_deg
+
+for p,pointing in enumerate(pointings):
+
+    tiles = get_tiles(pointing[0],pointing[1])
+    ra_shape, dec_shape, junk = tiles.shape
+
+    vmin, vmax = 10, 6
+
+    fig = plt.figure()
+    ax1 = fig.add_subplot(111, aspect='equal')
+    plt.scatter(ra,dec,c=mag,vmin=vmin,vmax=vmax)
+
+    for ii in xrange(ra_shape):
+        for jj in xrange(dec_shape):
+            ax1.add_patch(
+                patches.Rectangle(
+                (tiles[ii,jj,0], tiles[ii,jj,1]),   # (x,y)
+                ra_width,          # width
+                dec_width,          # height
+                alpha = 0.5
+                )
+            )
+    
+    plt.xlim([ra_deg-5,ra_deg+5])
+    plt.ylim([dec_deg-5,dec_deg+5])
+    cbar = plt.colorbar()
+    cbar.set_label('Magnitude') 
+
+    plotName = os.path.join(outputDir,'panels_%04d'%p)
+    plt.savefig(plotName)
+    plt.close()
+
+moviedir = os.path.join(outputDir,"movie")
+if not os.path.isdir(moviedir):
+    os.makedirs(moviedir)
+
+filenames = sorted(glob.glob(os.path.join(outputDir,'*.png')))
+n=1
+for file in filenames:
+    n = n + 1
+    filename = os.path.join(moviedir,"ztf-%04d.png"%n)
+    cp_command = "cp %s %s"%(file,filename)
+    os.system(cp_command)
+
+moviefiles = os.path.join(moviedir,"ztf-%04d.png")
+filename = os.path.join(moviedir,"ztf.mpg")
+ffmpeg_command = 'ffmpeg -an -y -r 20 -i %s -b:v %s %s'%(moviefiles,'5000k',filename)
+os.system(ffmpeg_command)
+filename = os.path.join(moviedir,"ztf.gif")
+ffmpeg_command = 'ffmpeg -an -y -r 20 -i %s -b:v %s %s'%(moviefiles,'5000k',filename)
+os.system(ffmpeg_command)
+
+rm_command = "rm %s/*.png"%(moviedir)
+os.system(rm_command)

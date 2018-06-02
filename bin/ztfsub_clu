@@ -100,7 +100,8 @@ if opts.doForcedPhotometry:
         fwhms["Ha672"] = fwhm_default
         fwhms["Ha681"] = fwhm_default
 
-imagefiles, goodimages = ztfsub.surveys.get_ptf(opts,path_out_refs,ra=ra,ra_size=ra_size,dec=dec,dec_size=dec_size)
+imagefiles, goodimages, zps = ztfsub.surveys.get_ptf(opts,path_out_refs,ra=ra,ra_size=ra_size,dec=dec,dec_size=dec_size)
+
 if not goodimages:
     print "Images do not have data..."
     exit(0)
@@ -118,11 +119,12 @@ for ii in xrange(len(filts)):
     if opts.declination == None:
         dec = float(header["CRVAL2"])
 
-    ztfsub.utils.sextractor(imagefiles[filt],defaultsDir,doSubtractBackground=opts.doSubtractBackground)
+    zp = zps[filt]
+    ztfsub.utils.sextractor(imagefiles[filt],defaultsDir,doSubtractBackground=opts.doSubtractBackground,doPS1Params=True,zp=zp)
 
     if opts.doForcedPhotometry:
         fwhm = fwhms[filt]
-        ztfsub.utils.forcedphotometry(imagefiles[filt],ra,dec,fwhm=fwhm)
+        ztfsub.utils.forcedphotometry(imagefiles[filt],ra,dec,fwhm=fwhm,zp=zp)
 
     if opts.doPlots:
         plotName = imagefiles[filt].replace(".fits",".pdf")
@@ -179,8 +181,8 @@ for ii in xrange(len(filts)):
             else:
                 ztfsub.plotting.plot_image(refimage,plotName,catfile=refimage.replace(".fits",".cat"))        
 
-        ztfsub.utils.sextractor(scienceimage,defaultsDir)
-        ztfsub.utils.sextractor(refimage,defaultsDir)
+        ztfsub.utils.sextractor(scienceimage,defaultsDir,doPS1Params=True,zp=zps[filt1])
+        ztfsub.utils.sextractor(refimage,defaultsDir,doPS1Params=True,zp=zps[filt2])
 
         if opts.doForcedPhotometry:
             ztfsub.utils.p60sdsssub(opts, scienceimage, refimage, [ra,dec],
@@ -198,17 +200,17 @@ for ii in xrange(len(filts)):
                  aperture=10.0, defaultsDir=defaultsDir)
 
         scienceimageshift = scienceimage.replace(".fits",".shift.fits")
-        ztfsub.utils.sextractor(scienceimageshift,defaultsDir)
+        ztfsub.utils.sextractor(scienceimageshift,defaultsDir,doPS1Params=True,zp=zps[filt1])
 
         imagesub = scienceimage.replace(".fits",".sub.fits")
-        ztfsub.utils.sextractor(imagesub,defaultsDir)
+        ztfsub.utils.sextractor(imagesub,defaultsDir,doPS1Params=True,zp=zps[filt1]-zps[filt2])
 
         if opts.doForcedPhotometry:
             fwhm = np.max([fwhms[filt1],fwhms[filt2]])
-            ztfsub.utils.forcedphotometry(scienceimage,ra,dec,fwhm=fwhm)
-            ztfsub.utils.forcedphotometry(refimage,ra,dec,fwhm=fwhm)
-            ztfsub.utils.forcedphotometry(scienceimageshift,ra,dec,fwhm=fwhm)
-            ztfsub.utils.forcedphotometry(imagesub,ra,dec,fwhm=fwhm)
+            ztfsub.utils.forcedphotometry(scienceimage,ra,dec,fwhm=fwhm,zp=zps[filt1])
+            ztfsub.utils.forcedphotometry(refimage,ra,dec,fwhm=fwhm,zp=zps[filt2])
+            ztfsub.utils.forcedphotometry(scienceimageshift,ra,dec,fwhm=fwhm,zp=zps[filt1])
+            ztfsub.utils.forcedphotometry(imagesub,ra,dec,fwhm=fwhm,zp=zps[filt1]-zps[filt2])
 
         combinedimagefiles['%s_%s'%(filt1,filt2)] = imagesub
 
@@ -229,10 +231,24 @@ for ii in xrange(len(filts)):
                 f1.show_circles(ra,dec,fwhm/3600.0,zorder=99,linestyle='dashed', edgecolor='white')
             else:
                 catfile = scienceimageshift.replace(".fits",".cat")
-                cat = np.loadtxt(catfile)
-                if cat.size:
-                    ras, decs, fwhms = cat[:,3], cat[:,4], cat[:,6]
-                    f1.show_circles(ras,decs,fwhms,zorder=99,linestyle='dashed', edgecolor='red')
+                try:
+                    cat = np.loadtxt(catfile)
+                    if cat.size:
+                        ras, decs, fwhms = cat[:,3], cat[:,4], cat[:,6]
+                        f1.show_circles(ras,decs,fwhms,zorder=99,linestyle='dashed', edgecolor='red')
+                except:
+                    hdulist=fits.open(catfile)
+                    header = hdulist[1].header
+                    data = hdulist[1].data
+        
+                    ras, decs, fwhms = [], [], []
+                    for row in data:
+                        ragalaxy, decgalaxy, fwhm = row[35], row[36], row[13]
+                        ras.append(ragalaxy)
+                        decs.append(decgalaxy)
+                        fwhms.append(fwhm/3600.0)
+                    f1.show_circles(ras,decs,1,zorder=99,linestyle='dashed', edgecolor='red')
+
             #f1.show_circles(cat1[:,3],cat1[:,4],1,zorder=0)
             f2 = aplpy.FITSFigure(refimage, figure=fig, subplot=[0.4,0.1,0.25,0.8])
             f2.set_tick_labels_font(size='x-small')
@@ -244,10 +260,23 @@ for ii in xrange(len(filts)):
                 f2.show_circles(ra,dec,fwhm/3600.0,zorder=99,linestyle='dashed', edgecolor='white')
             else:
                 catfile = refimage.replace(".fits",".cat")
-                cat = np.loadtxt(catfile)
-                if cat.size:
-                    ras, decs, fwhms = cat[:,3], cat[:,4], cat[:,6]
-                    f2.show_circles(ras,decs,fwhms,zorder=99,linestyle='dashed', edgecolor='red')
+                try:
+                    cat = np.loadtxt(catfile)
+                    if cat.size:
+                        ras, decs, fwhms = cat[:,3], cat[:,4], cat[:,6]
+                        f2.show_circles(ras,decs,fwhms,zorder=99,linestyle='dashed', edgecolor='red')
+                except:
+                    hdulist=fits.open(catfile)
+                    header = hdulist[1].header
+                    data = hdulist[1].data
+ 
+                    ras, decs, fwhms = [], [], []
+                    for row in data:
+                        ragalaxy, decgalaxy, fwhm = row[35], row[36], row[13]
+                        ras.append(ragalaxy)
+                        decs.append(decgalaxy)
+                        fwhms.append(fwhm/3600.0)
+                    f2.show_circles(ras,decs,1,zorder=99,linestyle='dashed', edgecolor='red')
             #f2.show_circles(cat2[:,3],cat2[:,4],cat2[:,6])
             f3 = aplpy.FITSFigure(imagesub, figure=fig, subplot=[0.7,0.1,0.25,0.8])
             f3.set_tick_labels_font(size='x-small')
@@ -259,9 +288,22 @@ for ii in xrange(len(filts)):
                 f3.show_circles(ra,dec,fwhm/3600.0,zorder=99,linestyle='dashed', edgecolor='white')
             else:
                 catfile = imagesub.replace(".fits",".cat")
-                cat = np.loadtxt(catfile)
-                if cat.size:
-                    ras, decs, fwhms = cat[:,3], cat[:,4], cat[:,6]
+                try:
+                    cat = np.loadtxt(catfile)
+                    if cat.size:
+                        ras, decs, fwhms = cat[:,3], cat[:,4], cat[:,6]
+                        f3.show_circles(ras,decs,fwhms,zorder=99,linestyle='dashed', edgecolor='red')
+                except:
+                    hdulist=fits.open(catfile)
+                    header = hdulist[1].header
+                    data = hdulist[1].data
+ 
+                    ras, decs, fwhms = [], [], []
+                    for row in data:
+                        ragalaxy, decgalaxy, fwhm = row[35], row[36], row[13]
+                        ras.append(ragalaxy)
+                        decs.append(decgalaxy)
+                        fwhms.append(fwhm/3600.0)
                     f3.show_circles(ras,decs,fwhms,zorder=99,linestyle='dashed', edgecolor='red')
             #f3.show_circles(catsub[:,3],catsub[:,4],catsub[:,6])
             fig.canvas.draw()
