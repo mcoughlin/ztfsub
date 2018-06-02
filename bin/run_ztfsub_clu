@@ -30,10 +30,18 @@ def parse_commandline():
     parser.add_option("-d","--defaultsDir",default="../defaults")
 
     parser.add_option("--doRun",  action="store_true", default=False)
+    parser.add_option("--doCombine",  action="store_true", default=False)
+    parser.add_option("--doPlots",  action="store_true", default=False)
 
     opts, args = parser.parse_args()
 
     return opts
+
+def magdiff(mag1,mag2):
+    mag1flux = 10**(-mag1*0.4)
+    mag2flux = 10**(-mag2*0.4)
+    fluxdiff = np.abs(mag1flux-mag2flux)
+    return -2.5*np.log10(fluxdiff)
 
 # Parse command line
 opts = parse_commandline()
@@ -88,160 +96,175 @@ if not os.path.isdir(combineddir):
 combinedfile = "%s/combined.dat"%combineddir
 combined_data = {}
 
-fid = open(combinedfile,'w')
-fid.write('# ragalaxy, decgalaxy, z, maxcsig, haew, haewerr, ha1mag, ha1magerr, ha2mag, ha2magerr, ha3mag, ha3magerr, ha4mag, ha4magerr, ')
-for ii in xrange(len(filts)):
-    filt = filts[ii]
-    fid.write('%s, %s_err,'%(filt,filt))
-for ii in xrange(len(filts)):
-    for jj in xrange(len(filts)):
-        filt1, filt2 = filts[ii], filts[jj]
-        if not ((filt1 == "Ha681" and filt2 == "Ha672") or (filt1 == "Ha672" and filt2 == "Ha681") or (filt1 == "Ha663" and filt2 == "Ha656") or (filt1 == "Ha656" and filt2 == "Ha663")): continue 
-
-        filt = "%s_%s"%(filt1, filt2)
-        fid.write('%s, %s_err,'%(filt,filt))            
-fid.write('\n')
-
-for row in data:
-    ragalaxy, decgalaxy = row[6], row[7]
-    ha1magerr, ha1mag, ha2magerr, ha2mag, ha3magerr, ha3mag, ha4magerr, ha4mag =        row[17], row[18], row[19], row[20], row[21], row[22], row[23], row[24]
-    csig1, csig2, csig3, csig4 = row[110], row[111], row[112], row[113]
-    fwhm1, fwhm2, fwhm3, fwhm4 = row[72], row[73], row[74], row[75]
-    fwhm1, fwhm2, fwhm3, fwhm4 = 6.0, 6.0, 6.0, 6.0
-    zsdss, zned, zclu  = row[119], row[120], row[121]
-    haew, haewerr = row[122], row[123]
-    visclass = row[117]
-
-    if not ((ragalaxy > ramin-0.1) and (ragalaxy < ramax+0.1)): continue
-    if not ((decgalaxy > decmin-0.1) and (decgalaxy < decmax+0.1)): continue
-    if not ((zsdss > 0.0) and (zsdss < 0.048)): continue
-    if not visclass: continue
-
-    maxcsig = np.max([csig1, csig2, csig3, csig4])
-    if maxcsig < 1: continue
-    if "%.5f_%.5f"%(ragalaxy,decgalaxy) in radecs: continue
-
-    fwhms = "%.2f,%.2f,%.2f,%.2f"%(fwhm1, fwhm2, fwhm3, fwhm4)
-
-    path_out_dir='%s/%s/%.5f_%.5f'%(outputDir,opts.field,ragalaxy,decgalaxy)
-    path_out_pairs='%s/pairs'%path_out_dir
-    path_out_refs='%s/refs'%path_out_dir
-
-    if opts.doRun:
-        if os.path.isdir(path_out_dir): continue
-
-        system_command = "python ztfsub_clu --doPlots --field %s --ra %.5f --declination %.5f --image_size 200 --doForcedPhotometry --fwhm %s"%(opts.field,ragalaxy, decgalaxy,fwhms)
-        print system_command
-        continue
-        os.system(system_command)
-
-    if not os.path.isfile(os.path.join(path_out_pairs,'Ha656_Ha663/sci.pdf')):
-        rm_command = "rm -rf %s"%path_out_dir
-        os.system(rm_command)
-        continue
-
+if opts.doCombine:
+    fid = open(combinedfile,'w')
+    fid.write('# ragalaxy, decgalaxy, z, maxcsig, haew, haewerr, ha1mag, ha1magerr, ha2mag, ha2magerr, ha3mag, ha3magerr, ha4mag, ha4magerr, ')
     for ii in xrange(len(filts)):
         filt = filts[ii]
-        imagefile = "%s/ptf_%s.fits"%(path_out_refs,filt)
-        forcedfile = imagefile.replace(".fits",".forced")
-
-        if not os.path.isfile(forcedfile): continue
-        forced = np.loadtxt(forcedfile)
-
-        combined_data[filt] = {}
-        combined_data[filt]["mag"] = forced[0]
-        combined_data[filt]["dmag"] = forced[1]
-
-    for ii in xrange(len(filts)):
-        for jj in xrange(len(filts)):
-            filt1, filt2 = filts[ii], filts[jj]
-
-            if not ((filt1 == "Ha681" and filt2 == "Ha672") or (filt1 == "Ha672" and filt2 == "Ha681") or (filt1 == "Ha663" and filt2 == "Ha656") or (filt1 == "Ha656" and filt2 == "Ha663")): continue
-    
-            path_out_pair='%s/%s_%s'%(path_out_pairs,filt1,filt2)
-            scienceimage = '%s/sci.fits'%(path_out_pair)
-            refimage = '%s/ref.fits'%(path_out_pair)
-            scienceimageshift = scienceimage.replace(".fits",".shift.fits")
-            imagesub = scienceimage.replace(".fits",".sub.fits")
-
-            scienceforcedfile = scienceimage.replace(".fits",".forced")
-            refforcedfile = refimage.replace(".fits",".forced")
-            scienceforcedshiftfile = scienceimageshift.replace(".fits",".forced")
-            forcedsubfile = imagesub.replace(".fits",".forced")
-
-            if not(os.path.isfile(scienceforcedfile) and os.path.isfile(refforcedfile) and os.path.isfile(scienceforcedshiftfile) and os.path.isfile(forcedsubfile)):
-                continue
-
-            scienceforced = np.loadtxt(scienceforcedfile)
-            refforced = np.loadtxt(refforcedfile)
-            scienceforcedshift = np.loadtxt(scienceforcedshiftfile)
-            forcedsub = np.loadtxt(forcedsubfile)
-
-            filt = "%s_%s"%(filt1, filt2)
-            combined_data[filt] = {}
-            combined_data[filt]["mag"] = forcedsub[0]
-            combined_data[filt]["dmag"] = forcedsub[1]
-
-    fid.write('%.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f '%(ragalaxy,decgalaxy, zsdss, maxcsig, haew, haewerr, ha1mag, ha1magerr, ha2mag, ha2magerr, ha3mag, ha3magerr, ha4mag, ha4magerr))
-    for ii in xrange(len(filts)):
-        filt = filts[ii]
-        fid.write('%.5f %.5f '%(combined_data[filt]["mag"],combined_data[filt]["dmag"]))
+        fid.write('%s, %s_err,'%(filt,filt))
     for ii in xrange(len(filts)):
         for jj in xrange(len(filts)):
             filt1, filt2 = filts[ii], filts[jj]
             if not ((filt1 == "Ha681" and filt2 == "Ha672") or (filt1 == "Ha672" and filt2 == "Ha681") or (filt1 == "Ha663" and filt2 == "Ha656") or (filt1 == "Ha656" and filt2 == "Ha663")): continue 
-
+    
             filt = "%s_%s"%(filt1, filt2)
-            fid.write('%.5f %.5f '%(combined_data[filt]["mag"],combined_data[filt]["dmag"]))            
+            fid.write('%s, %s_err,'%(filt,filt))            
     fid.write('\n')
-fid.close()
+    
+    for row in data:
+        ragalaxy, decgalaxy = row[6], row[7]
+        ha1magerr, ha1mag, ha2magerr, ha2mag, ha3magerr, ha3mag, ha4magerr, ha4mag =        row[17], row[18], row[19], row[20], row[21], row[22], row[23], row[24]
+        csig1, csig2, csig3, csig4 = row[110], row[111], row[112], row[113]
+        fwhm1, fwhm2, fwhm3, fwhm4 = row[72], row[73], row[74], row[75]
+        fwhm1, fwhm2, fwhm3, fwhm4 = 6.0, 6.0, 6.0, 6.0
+        zsdss, zned, zclu  = row[119], row[120], row[121]
+        haew, haewerr = row[122], row[123]
+        visclass = row[117]
+    
+        if not ((ragalaxy > ramin-0.1) and (ragalaxy < ramax+0.1)): continue
+        if not ((decgalaxy > decmin-0.1) and (decgalaxy < decmax+0.1)): continue
+        #if not ((zsdss > 0.0) and (zsdss < 0.048)): continue
+        #if not visclass: continue
+    
+        maxcsig = np.max([csig1, csig2, csig3, csig4])
+        #if maxcsig < 1: continue
+        if "%.5f_%.5f"%(ragalaxy,decgalaxy) in radecs: continue
+    
+        fwhms = "%.2f,%.2f,%.2f,%.2f"%(fwhm1, fwhm2, fwhm3, fwhm4)
+    
+        path_out_dir='%s/%s/%.5f_%.5f'%(outputDir,opts.field,ragalaxy,decgalaxy)
+        path_out_pairs='%s/pairs'%path_out_dir
+        path_out_refs='%s/refs'%path_out_dir
+    
+        if opts.doRun:
+            if os.path.isdir(path_out_dir): continue
+    
+            system_command = "python ztfsub_clu --doPlots --field %s --ra %.5f --declination %.5f --image_size 200 --doForcedPhotometry --fwhm %s"%(opts.field,ragalaxy, decgalaxy,fwhms)
+            print system_command
+            print stop
+            os.system(system_command)
+    
+        if not os.path.isfile(os.path.join(path_out_pairs,'Ha656_Ha663/sci.pdf')):
+            rm_command = "rm -rf %s"%path_out_dir
+            os.system(rm_command)
+            continue
+    
+        for ii in xrange(len(filts)):
+            filt = filts[ii]
+            imagefile = "%s/ptf_%s.fits"%(path_out_refs,filt)
+            forcedfile = imagefile.replace(".fits",".forced")
+    
+            if not os.path.isfile(forcedfile): continue
+            forced = np.loadtxt(forcedfile)
+    
+            combined_data[filt] = {}
+            combined_data[filt]["mag"] = forced[0]
+            combined_data[filt]["dmag"] = forced[1]
+    
+        for ii in xrange(len(filts)):
+            for jj in xrange(len(filts)):
+                filt1, filt2 = filts[ii], filts[jj]
+    
+                if not ((filt1 == "Ha681" and filt2 == "Ha672") or (filt1 == "Ha672" and filt2 == "Ha681") or (filt1 == "Ha663" and filt2 == "Ha656") or (filt1 == "Ha656" and filt2 == "Ha663")): continue
+        
+                path_out_pair='%s/%s_%s'%(path_out_pairs,filt1,filt2)
+                scienceimage = '%s/sci.fits'%(path_out_pair)
+                refimage = '%s/ref.fits'%(path_out_pair)
+                scienceimageshift = scienceimage.replace(".fits",".shift.fits")
+                imagesub = scienceimage.replace(".fits",".sub.fits")
+    
+                scienceforcedfile = scienceimage.replace(".fits",".forced")
+                refforcedfile = refimage.replace(".fits",".forced")
+                scienceforcedshiftfile = scienceimageshift.replace(".fits",".forced")
+                forcedsubfile = imagesub.replace(".fits",".forced")
+    
+                if not(os.path.isfile(scienceforcedfile) and os.path.isfile(refforcedfile) and os.path.isfile(scienceforcedshiftfile) and os.path.isfile(forcedsubfile)):
+                    continue
+    
+                scienceforced = np.loadtxt(scienceforcedfile)
+                refforced = np.loadtxt(refforcedfile)
+                scienceforcedshift = np.loadtxt(scienceforcedshiftfile)
+                forcedsub = np.loadtxt(forcedsubfile)
+    
+                filt = "%s_%s"%(filt1, filt2)
+                combined_data[filt] = {}
+                combined_data[filt]["mag"] = forcedsub[0]
+                combined_data[filt]["dmag"] = forcedsub[1]
+    
+        fid.write('%.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f '%(ragalaxy,decgalaxy, zsdss, maxcsig, haew, haewerr, ha1mag, ha1magerr, ha2mag, ha2magerr, ha3mag, ha3magerr, ha4mag, ha4magerr))
+        for ii in xrange(len(filts)):
+            filt = filts[ii]
+            fid.write('%.5f %.5f '%(combined_data[filt]["mag"],combined_data[filt]["dmag"]))
+        for ii in xrange(len(filts)):
+            for jj in xrange(len(filts)):
+                filt1, filt2 = filts[ii], filts[jj]
+                if not ((filt1 == "Ha681" and filt2 == "Ha672") or (filt1 == "Ha672" and filt2 == "Ha681") or (filt1 == "Ha663" and filt2 == "Ha656") or (filt1 == "Ha656" and filt2 == "Ha663")): continue 
+    
+                filt = "%s_%s"%(filt1, filt2)
+                fid.write('%.5f %.5f '%(combined_data[filt]["mag"],combined_data[filt]["dmag"]))            
+        fid.write('\n')
+    fid.close()
+   
+if opts.doPlots: 
+    combined = np.loadtxt(combinedfile)
+    idx = np.where(~np.isnan(combined[:,0]))[0]
+    combined = combined[idx,:]
+    
+    plt.figure()
+    plt.errorbar(combined[:,6],combined[:,14],xerr=combined[:,7],yerr=combined[:,15],fmt='o',color='b',label="Ha656")
+    plt.errorbar(combined[:,8],combined[:,16],xerr=combined[:,9],yerr=combined[:,17],fmt='o',color='r',label="Ha663")
+    plt.errorbar(combined[:,10],combined[:,18],xerr=combined[:,11],yerr=combined[:,19],fmt='o',color='g',label="Ha672")
+    plt.errorbar(combined[:,12],combined[:,20],xerr=combined[:,13],yerr=combined[:,21],fmt='o',color='c',label="Ha681")
+    plt.legend(loc="best")
+    plt.xlim([10,20])
+    plt.ylim([-15,0])
+    plt.gca().invert_xaxis()
+    plt.gca().invert_yaxis()
+    plt.xlabel('CLU Magnitude')
+    plt.ylabel('Aperture Magnitude')
+    plotName = os.path.join(combineddir,'comparison.pdf')
+    plt.savefig(plotName)
+    plt.close()
+    
+    plt.figure()
+    plt.errorbar(combined[:,6],magdiff(combined[:,6],combined[:,14]),xerr=combined[:,7],yerr=np.sqrt(combined[:,7]**2 + combined[:,15]**2),fmt='o',color='b',label="Ha656")
+    plt.errorbar(combined[:,8],magdiff(combined[:,8],combined[:,16]),xerr=combined[:,9],yerr=np.sqrt(combined[:,9]**2 + combined[:,17]**2),fmt='o',color='r',label="Ha663")
+    plt.errorbar(combined[:,10],magdiff(combined[:,10],combined[:,18]),xerr=combined[:,11],yerr=np.sqrt(combined[:,11]**2 + combined[:,19]**2),fmt='o',color='g',label="Ha672")
+    plt.errorbar(combined[:,12],magdiff(combined[:,12],combined[:,20]),xerr=combined[:,13],yerr=np.sqrt(combined[:,13]**2 + combined[:,21]**2),fmt='o',color='c',label="Ha681")
+    plt.legend(loc="best")
+    plt.xlim([12,20])
+    plt.ylim([-12.5,-5.0])
+    plt.gca().invert_xaxis()
+    plt.gca().invert_yaxis()
+    plt.xlabel('CLU Magnitude')
+    plt.ylabel('CLU - Aperture Magnitude')
+    plotName = os.path.join(combineddir,'comparison_diff.pdf')
+    plt.savefig(plotName)
+    plt.close()
+    
+    plt.figure()
+    plt.errorbar(magdiff(combined[:,6],combined[:,8]),combined[:,22],xerr=np.sqrt(combined[:,7]**2 + combined[:,9]**2),yerr=combined[:,23],fmt='o',color='b',label="Ha656-Ha663")
+    plt.errorbar(magdiff(combined[:,10],combined[:,12]),combined[:,26],xerr=np.sqrt(combined[:,11]**2 + combined[:,13]**2),yerr=combined[:,27],fmt='o',color='k',label="Ha672-Ha681")
+    plt.legend(loc="best")
+    plt.xlim([0,30])
+    plt.ylim([-15,2.5])
+    plt.gca().invert_xaxis()
+    plt.gca().invert_yaxis()
+    plt.xlabel('Aperture Magnitude Difference')
+    plt.ylabel('Subtraction Magnitude')
+    plotName = os.path.join(combineddir,'comparison_subtraction.pdf')
+    plt.savefig(plotName)
+    plt.close()
 
-combined = np.loadtxt(combinedfile)
-idx = np.where(~np.isnan(combined[:,0]))[0]
-combined = combined[idx,:]
-
-plt.figure()
-plt.errorbar(combined[:,6],combined[:,14],xerr=combined[:,7],yerr=combined[:,15],fmt='o',color='b',label="Ha656")
-plt.errorbar(combined[:,8],combined[:,16],xerr=combined[:,9],yerr=combined[:,17],fmt='o',color='r',label="Ha663")
-plt.errorbar(combined[:,10],combined[:,18],xerr=combined[:,11],yerr=combined[:,19],fmt='o',color='g',label="Ha672")
-plt.errorbar(combined[:,12],combined[:,20],xerr=combined[:,13],yerr=combined[:,21],fmt='o',color='c',label="Ha681")
-plt.legend(loc="best")
-plt.xlim([10,20])
-plt.ylim([-15,0])
-plt.gca().invert_xaxis()
-plt.gca().invert_yaxis()
-plt.xlabel('CLU Magnitude')
-plt.ylabel('Aperture Magnitude')
-plotName = os.path.join(combineddir,'comparison.pdf')
-plt.savefig(plotName)
-plt.close()
-
-plt.figure()
-plt.errorbar(combined[:,6],combined[:,6]-combined[:,14],xerr=combined[:,7],yerr=np.sqrt(combined[:,7]**2 + combined[:,15]**2),fmt='o',color='b',label="Ha656")
-plt.errorbar(combined[:,8],combined[:,8]-combined[:,16],xerr=combined[:,9],yerr=np.sqrt(combined[:,9]**2 + combined[:,17]**2),fmt='o',color='r',label="Ha663")
-plt.errorbar(combined[:,10],combined[:,10]-combined[:,18],xerr=combined[:,11],yerr=np.sqrt(combined[:,11]**2 + combined[:,19]**2),fmt='o',color='g',label="Ha672")
-plt.errorbar(combined[:,12],combined[:,12]-combined[:,20],xerr=combined[:,13],yerr=np.sqrt(combined[:,13]**2 + combined[:,21]**2),fmt='o',color='c',label="Ha681")
-plt.legend(loc="best")
-plt.xlim([10,20])
-plt.ylim([20,30])
-plt.gca().invert_xaxis()
-plt.gca().invert_yaxis()
-plt.xlabel('CLU Magnitude')
-plt.ylabel('CLU - Aperture Magnitude')
-plotName = os.path.join(combineddir,'comparison_diff.pdf')
-plt.savefig(plotName)
-plt.close()
-
-plt.figure()
-plt.errorbar(combined[:,6]-combined[:,8],combined[:,22],xerr=np.sqrt(combined[:,7]**2 + combined[:,9]**2),yerr=combined[:,23],fmt='o',color='b',label="Ha656-Ha663")
-plt.errorbar(combined[:,10]-combined[:,12],combined[:,26],xerr=np.sqrt(combined[:,11]**2 + combined[:,13]**2),yerr=combined[:,27],fmt='o',color='k',label="Ha672-Ha681")
-plt.legend(loc="best")
-plt.xlim([-2.5,5])
-plt.ylim([-15,2.5])
-plt.gca().invert_xaxis()
-plt.gca().invert_yaxis()
-plt.xlabel('Aperture Magnitude Difference')
-plt.ylabel('Subtraction Magnitude')
-plotName = os.path.join(combineddir,'comparison_subtraction.pdf')
-plt.savefig(plotName)
-plt.close()
+    plt.figure()
+    plt.errorbar(combined[:,3],combined[:,22],yerr=combined[:,23],fmt='o',color='b',label="Ha656-Ha663")
+    plt.errorbar(combined[:,3],combined[:,26],yerr=combined[:,27],fmt='o',color='k',label="Ha672-Ha681")
+    plt.legend(loc="best")
+    #plt.xlim([0,30])
+    plt.ylim([-15,2.5])
+    plt.gca().invert_yaxis()
+    plt.xlabel('Max CLU significance')
+    plt.ylabel('Subtraction Magnitude')
+    plotName = os.path.join(combineddir,'comparison_significance.pdf')
+    plt.savefig(plotName)
+    plt.close()

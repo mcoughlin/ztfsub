@@ -46,6 +46,7 @@ runDir = opts.runDir
 images = glob.glob('%s/ptf/%s/*.fits'%(opts.dataDir,opts.field))
 radecimages = []
 doFix = False
+doFix = True
 for image in images:
     imagefile = image.split("/")[-1]
     if "201603213319" in imagefile: continue
@@ -74,6 +75,8 @@ for image in images:
     ras, decs = ztfsub.utils.get_radec_limits_from_wcs(image)
 
     radecimages.append([ras[0],ras[1],decs[0],decs[1]])
+
+print stop
 
 path_out_dir_base='%s/%s'%(opts.outputDir,opts.field)
 if not os.path.isdir(path_out_dir_base):

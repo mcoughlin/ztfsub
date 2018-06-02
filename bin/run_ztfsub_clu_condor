@@ -57,6 +57,7 @@ for image in images:
         raimage, decimage = ztfsub.utils.get_radec_from_wcs(image)
     except:
         outfile = "/tmp/headers.fits"
+        print image
         hdulist=fits.open(image)
         size = hdulist[0].data.shape
         swarpcmd='swarp %s -CENTER_TYPE ALL -PIXELSCALE_TYPE MEDIAN -IMAGE_SIZE "%i, %i" -SUBTRACT_BACK N -IMAGEOUT_NAME %s -COPY_KEYWORDS FILTER' % (image, size[0], size[1],outfile)
@@ -94,18 +95,19 @@ for row in data:
     ha1magerr, ha1mag, ha2magerr, ha2mag, ha3magerr, ha3mag, ha4magerr, ha4mag =        row[17], row[18], row[19], row[20], row[21], row[22], row[23], row[24]
     csig1, csig2, csig3, csig4 = row[110], row[111], row[112], row[113]
     fwhm1, fwhm2, fwhm3, fwhm4 = row[72], row[73], row[74], row[75]
-    fwhm1, fwhm2, fwhm3, fwhm4 = 6.0, 6.0, 6.0, 6.0
+    fwhm1, fwhm2, fwhm3, fwhm4 = 5.0, 5.0, 5.0, 5.0
+    fwhm1, fwhm2, fwhm3, fwhm4 = 2.5, 2.5, 2.5, 2.5
     zsdss, zned, zclu  = row[119], row[120], row[121]
     haew, haewerr = row[122], row[123]
     visclass = row[117]
 
     if not ((ragalaxy > ramin-0.1) and (ragalaxy < ramax+0.1)): continue
     if not ((decgalaxy > decmin-0.1) and (decgalaxy < decmax+0.1)): continue
-    if not ((zsdss > 0.0) and (zsdss < 0.048)): continue
-    if not visclass: continue
+    #if not ((zsdss > 0.0) and (zsdss < 0.048)): continue
+    #if not visclass: continue
 
     maxcsig = np.max([csig1, csig2, csig3, csig4])
-    if maxcsig < 1: continue
+    #if maxcsig < 1: continue
     if "%.5f_%.5f"%(ragalaxy,decgalaxy) in radecs: continue
 
     fwhms = "%.2f,%.2f,%.2f,%.2f"%(fwhm1, fwhm2, fwhm3, fwhm4)

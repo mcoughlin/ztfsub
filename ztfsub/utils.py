@@ -288,16 +288,26 @@ def p60scamp(opts, inlis, refimage=None, distortdeg=3, scthresh1=5.0,
 
     print "Exiting successfully"
 
-def astrometrynet(imagefile):
+def astrometrynet(imagefile,pixel_scale=0.18,ra=None, dec=None, radius=1.0):
 
-    os.system('solve-field --no-plots --overwrite %s' % (imagefile))
-    shutil.move(imagefile.replace(".fits",".new"), imagefile)
+    if not ra == None:
+        os.system('solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ra %.5f --dec %.5f --radius %.5f' % (imagefile,pixel_scale,pixel_scale,ra,dec,radius))
+    else:
+        os.system('solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f' % (imagefile,pixel_scale,pixel_scale))
 
-def sextractor(imagefile,defaultsDir,doSubtractBackground=False):
+    try:
+        shutil.move(imagefile.replace(".fits",".new"), imagefile)
+    except:
+        pass
+
+def sextractor(imagefile,defaultsDir,doSubtractBackground=False,doPS1Params=False,zp=0.0):
 
     catfile = imagefile.replace(".fits",".cat")
     backfile = imagefile.replace(".fits",".background.fits")
-    cmd_sex = 'sex %s -c %s/default.sex -PARAMETERS_NAME %s/daofind.param -FILTER_NAME %s/default.conv -CHECKIMAGE_TYPE BACKGROUND -CHECKIMAGE_NAME %s -CATALOG_NAME %s'%(imagefile,defaultsDir,defaultsDir,defaultsDir,backfile,catfile)
+    if doPS1Params:
+        cmd_sex = 'sex %s -c %s/withPS1.sex -PARAMETERS_NAME %s/withPS1.param -FILTER_NAME %s/gauss_2.0_5x5.conv -CHECKIMAGE_TYPE BACKGROUND -CHECKIMAGE_NAME %s -CATALOG_NAME %s -PSF_NAME %s/default.psf -STARNNW_NAME %s/default.nnw -MAG_ZEROPOINT %.5f'%(imagefile,defaultsDir,defaultsDir,defaultsDir,backfile,catfile,defaultsDir,defaultsDir,zp)
+    else:
+        cmd_sex = 'sex %s -c %s/default.sex -PARAMETERS_NAME %s/daofind.param -FILTER_NAME %s/default.conv -CHECKIMAGE_TYPE BACKGROUND -CHECKIMAGE_NAME %s -CATALOG_NAME %s -MAG_ZEROPOINT %.5f'%(imagefile,defaultsDir,defaultsDir,defaultsDir,backfile,catfile,zp)    
     os.system(cmd_sex)
 
     if doSubtractBackground:
@@ -306,7 +316,7 @@ def sextractor(imagefile,defaultsDir,doSubtractBackground=False):
         hdulist[0].data=hdulist[0].data-hdulistback[0].data
         hdulist.writeto(imagefile,clobber=True)        
 
-def forcedphotometry(imagefile,ra,dec,fwhm=5.0):
+def forcedphotometry(imagefile,ra,dec,fwhm=5.0,zp=0.0):
 
     hdulist=fits.open(imagefile)
     header = fits.getheader(imagefile)
@@ -316,7 +326,7 @@ def forcedphotometry(imagefile,ra,dec,fwhm=5.0):
     x0,y0 = w.wcs_world2pix(ra,dec,1)
     gain = 1.0
 
-    mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=0,skyrad=[3*fwhm,5*fwhm],exact=False)
+    mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False)
 
     forcedfile = imagefile.replace(".fits",".forced")
     fid = open(forcedfile,'w')
@@ -370,7 +380,12 @@ def download_images_from_links(links,ztfDir):
 
     raimages, decimages = [], []
     for image in links:
-        imagefinal = '%s/%s'%(ztfDir,image.split("/")[-1])
+        imageSplit = image.split("/")
+        year, day = imageSplit[-4], imageSplit[-3]
+        if not os.path.isdir('%s/%s%s'%(ztfDir,year,day)):
+            os.makedirs('%s/%s%s'%(ztfDir,year,day))
+
+        imagefinal = '%s/%s%s/%s'%(ztfDir,year,day,imageSplit[-1])
         if not os.path.isfile(imagefinal):
             wget_command = "wget %s --user %s --password %s -O %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"],imagefinal)
             os.system(wget_command)

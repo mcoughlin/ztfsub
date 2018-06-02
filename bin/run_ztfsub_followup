@@ -70,6 +70,6 @@ for line in lines:
     day2, imagenum2 = int(lineSplit[2]), int(lineSplit[3])
     ra, declination = float(lineSplit[4]), float(lineSplit[5])
 
-    system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d_%d --ra %.5f --declination %.5f --image_size 200 --source2 ps1 --outputDir %s --doSubtractBackground"%(day1,imagenum1,ra, declination, opts.outputDir)
+    system_command = "python ztfsub_subtraction --doPlots --imagenum1 %d_%d --ra %.5f --declination %.5f --image_size 200 --source2 ps1 --outputDir %s --doSubtractBackground --doOverwrite"%(day1,imagenum1,ra, declination, opts.outputDir)
     os.system(system_command)
 

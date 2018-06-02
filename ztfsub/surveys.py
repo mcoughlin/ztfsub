@@ -229,7 +229,12 @@ def get_ztf(opts,imagefile,imagenum):
 
     raimages, decimages = [], []
     for image in images:
-        imagefinal = '%s/%s'%(ztfDir,image.split("/")[-1])
+        imageSplit = image.split("/")
+        year, day = imageSplit[-4], imageSplit[-3]
+        if not os.path.isdir('%s/%s%s'%(ztfDir,year,day)):
+            os.makedirs('%s/%s%s'%(ztfDir,year,day))
+
+        imagefinal = '%s/%s%s/%s'%(ztfDir,year,day,imageSplit[-1])
         if not os.path.isfile(imagefinal):
             wget_command = "wget %s --user %s --password %s -O %s"%(image,os.environ["ZTF_USERNAME"],os.environ["ZTF_PASSWORD"],imagefinal)
             os.system(wget_command)
@@ -261,7 +266,9 @@ def get_ztf(opts,imagefile,imagenum):
     fid = open(listfile,'w')
     for Iid in Iids:
         image = images[Iid]
-        imagefinal = '%s/%s'%(ztfDir,image.split("/")[-1])
+        imageSplit = image.split("/")
+        year, day = imageSplit[-4], imageSplit[-3]
+        imagefinal = '%s/%s%s/%s'%(ztfDir,year,day,imageSplit[-1])
         fid.write('%s\n'%(imagefinal))
     fid.close()
 
@@ -276,6 +283,10 @@ def get_ztf(opts,imagefile,imagenum):
     return True
 
 def get_ptf(opts,imageDir,ra=None,ra_size=None,dec=None,dec_size=None):
+
+    zeropointFile = '%s/ptf/PrelimUp.cal'%opts.dataDir
+    zeropoints = [line.rstrip('\n') for line in open(zeropointFile)]
+    zeropoints = zeropoints[1:]
 
     ptfResampleDir = '%s/ptf_resample/%s'%(opts.dataDir,opts.field)
     if not os.path.isdir(ptfResampleDir):
@@ -323,6 +334,7 @@ def get_ptf(opts,imageDir,ra=None,ra_size=None,dec=None,dec_size=None):
 
     goodimages = True
     imagefiles = {}
+    zps = {}
 
     if ra_size > 200:
         Threshold  = 10.0
@@ -343,13 +355,21 @@ def get_ptf(opts,imageDir,ra=None,ra_size=None,dec=None,dec_size=None):
 
         if len(Iids) == 0:
             print "No PTF images available... returning."
-            return [], False
+            return [], False, []
 
         fid = open(listfile,'w')
         for Iid in Iids:
             image = images[Iid]
             fid.write('%s\n'%(image))
         fid.close()
+
+        imageSplit = image.split("/")[-1].replace(".fits","").split("_")
+        for zeropoint in zeropoints:
+            zeropointSplit = filter(None,zeropoint.split(" "))
+            if (zeropointSplit[0] == imageSplit[8]) and (zeropointSplit[3] == imageSplit[1]) and (zeropointSplit[2] == imageSplit[9][1:]):
+                zp = float(zeropointSplit[5])
+                zps[filt] = zp
+                break
 
         swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d -PIXEL_SCALE 1.0 -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml'%(listfile,opts.defaultsDir,ra,dec,ra_size,dec_size,imagefile,opts.tmpDir,ptfResampleDir,opts.tmpDir)
         os.system(swarp_command)
@@ -363,7 +383,7 @@ def get_ptf(opts,imageDir,ra=None,ra_size=None,dec=None,dec_size=None):
         hdulist[0].data[hdulist[0].data==0]=np.nan
         hdulist.writeto(imagefile,overwrite=True)
 
-    return imagefiles, goodimages
+    return imagefiles, goodimages, zps
 
 def get_p60(opts,imagefile,imagenum):
 
@@ -374,7 +394,6 @@ def get_p60(opts,imagefile,imagenum):
     p60ResampleDir = '%s/p60_resample'%opts.dataDir
     if not os.path.isdir(p60ResampleDir):
         os.makedirs(p60ResampleDir)
-
 
     N = 10
     listfile = opts.tmpDir + "/p60_list_" + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(N)) + '.txt'
