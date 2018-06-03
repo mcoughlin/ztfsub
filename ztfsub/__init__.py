@@ -20,7 +20,7 @@
 """Gravitational-wave Electromagnetic Optimization
 """
 
-from gwemopt import version
+from ztfsub import version
 
 __author__ = 'Michael Coughlin <michael.coughlin@ligo.org>'
 __version__ = version.__version__
