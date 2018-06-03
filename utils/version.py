@@ -145,6 +145,10 @@ class GitStatus(object):
         for attr in ['id', 'branch', 'tag', 'author', 'committer', 'status']:
             val = getattr(self, attr)
             if val:
+                try:
+                    val = val.decode()
+                except AttributeError:
+                    pass
                 fobj.write("git_%s = '%s'\n" % (attr, val))
             else:
                 fobj.write("git_%s = None\n" % attr)
