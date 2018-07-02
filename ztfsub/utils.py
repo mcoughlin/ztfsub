@@ -19,8 +19,14 @@ SUBREGION = "[1:1024,1:1024]"
 
 ######################################################################
 
-def get_radec_from_wcs(fitsfile):
-    header = fits.getheader(fitsfile)
+def get_radec_from_header(fitsfile,ext=0):
+    header = fits.getheader(fitsfile,ext=ext)
+
+    ra, dec = header["CRVAL1"], header["CRVAL2"]
+    return ra, dec
+
+def get_radec_from_wcs(fitsfile,ext=0):
+    header = fits.getheader(fitsfile,ext=ext)
  
     w = WCS(header)
     ra, dec = w.wcs_pix2world(float(header['NAXIS1'])/2.0, float(header['NAXIS2'])/2.0,1)
@@ -288,22 +294,30 @@ def p60scamp(opts, inlis, refimage=None, distortdeg=3, scthresh1=5.0,
 
     print "Exiting successfully"
 
-def astrometrynet(imagefile,pixel_scale=0.18,ra=None, dec=None, radius=1.0):
+def astrometrynet(imagefile,pixel_scale=0.18,ra=None, dec=None, radius=1.0,depth=None,ext=0):
 
-    if not ra == None:
-        os.system('solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ra %.5f --dec %.5f --radius %.5f' % (imagefile,pixel_scale,pixel_scale,ra,dec,radius))
+    if not depth == None:
+        if not ra == None:
+            os.system('solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ra %.5f --dec %.5f --radius %.5f --ext %d' % (imagefile,pixel_scale/2.0,pixel_scale*2.0,ra,dec,radius,ext))
+        else:
+            os.system('solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ext %d' % (imagefile,pixel_scale/2.0,pixel_scale*2.0,ext))
     else:
-        os.system('solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f' % (imagefile,pixel_scale,pixel_scale))
+        if not ra == None:
+            os.system('solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ra %.5f --dec %.5f --radius %.5f --ext %d'% (imagefile,pixel_scale/2.0,pixel_scale*2.0,ra,dec,radius,ext))
+        else:
+            os.system('solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ext %d' % (imagefile,pixel_scale/2.0,pixel_scale*2.0,ext))
 
     try:
         shutil.move(imagefile.replace(".fits",".new"), imagefile)
     except:
         pass
 
-def sextractor(imagefile,defaultsDir,doSubtractBackground=False,doPS1Params=False,zp=0.0):
+def sextractor(imagefile,defaultsDir,doSubtractBackground=False,doPS1Params=False,zp=0.0,catfile=None,backfile=None):
 
-    catfile = imagefile.replace(".fits",".cat")
-    backfile = imagefile.replace(".fits",".background.fits")
+    if catfile == None:
+        catfile = imagefile.replace(".fits",".cat")
+    if backfile == None:
+        backfile = imagefile.replace(".fits",".background.fits")
     if doPS1Params:
         cmd_sex = 'sex %s -c %s/withPS1.sex -PARAMETERS_NAME %s/withPS1.param -FILTER_NAME %s/gauss_2.0_5x5.conv -CHECKIMAGE_TYPE BACKGROUND -CHECKIMAGE_NAME %s -CATALOG_NAME %s -PSF_NAME %s/default.psf -STARNNW_NAME %s/default.nnw -MAG_ZEROPOINT %.5f'%(imagefile,defaultsDir,defaultsDir,defaultsDir,backfile,catfile,defaultsDir,defaultsDir,zp)
     else:
@@ -313,7 +327,10 @@ def sextractor(imagefile,defaultsDir,doSubtractBackground=False,doPS1Params=Fals
     if doSubtractBackground:
         hdulist=fits.open(imagefile)
         hdulistback=fits.open(backfile)
-        hdulist[0].data=hdulist[0].data-hdulistback[0].data
+
+        for ii in range(len(hdulist)):
+            if hdulist[ii].data is None: continue
+            hdulist[ii].data=hdulist[ii].data-hdulistback[ii].data
         hdulist.writeto(imagefile,clobber=True)        
 
 def forcedphotometry(imagefile,ra,dec,fwhm=5.0,zp=0.0):
