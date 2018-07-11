@@ -8,6 +8,7 @@ import numpy as np
 
 from astropy.io import fits
 from astropy.wcs import WCS
+from astropy.time import Time
 
 import requests
 from lxml.html import fromstring
@@ -210,6 +211,8 @@ def p60sdsssub(opts, inlis, refimage, ot, distortdeg=1, scthresh1=3.0,
         FILE0001 = get_head(refimage,['FILE0001'])[0]
         if ("ztf" in FILE0001) or ("PTF" in FILE0001):
             pix = 1.0
+        elif "rings" in FILE0001:
+            pix = 0.26
         else:
             pix=0.396
  
@@ -333,22 +336,41 @@ def sextractor(imagefile,defaultsDir,doSubtractBackground=False,doPS1Params=Fals
             hdulist[ii].data=hdulist[ii].data-hdulistback[ii].data
         hdulist.writeto(imagefile,clobber=True)        
 
-def forcedphotometry(imagefile,ra,dec,fwhm=5.0,zp=0.0):
+def forcedphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0):
 
     hdulist=fits.open(imagefile)
     header = fits.getheader(imagefile)
-    image = hdulist[0].data
 
-    w = WCS(header)
-    x0,y0 = w.wcs_world2pix(ra,dec,1)
     gain = 1.0
-
-    mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False)
+    if x == None:
+        w = WCS(header)
+        x0,y0 = w.wcs_world2pix(ra,dec,1)
+        gain = 1.0
+    else:
+        x0,y0 = x, y
 
     forcedfile = imagefile.replace(".fits",".forced")
     fid = open(forcedfile,'w')
-    fid.write('%.5f %.5f\n'%(mag,magerr))
+
+    mjds, mags, magerrs, fluxes, fluxerrs = [], [], [], [], []
+    for ii, hdu in enumerate(hdulist):
+        if ii == 0: continue
+        header = hdulist[ii].header
+        image = hdulist[ii].data
+        dateobs = Time(header["DATE"])
+        mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False)
+
+        mjds.append(dateobs.mjd)
+        mags.append(mag)
+        magerrs.append(magerr)
+        fluxes.append(flux)
+        fluxerrs.append(fluxerr)
+
+        fid.write('%.5f %.5f %.5f %.5f %.5f\n'%(dateobs.mjd,mag,magerr,flux,fluxerr))
     fid.close()
+
+    return np.array(mjds), np.array(mags), np.array(magerrs), np.array(fluxes), np.array(fluxerrs)
+
 
 def get_links(minday = -1, day = None):
     links = []

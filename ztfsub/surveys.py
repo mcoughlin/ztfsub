@@ -14,17 +14,16 @@ from astropy.io import fits
 import aplpy
 
 import requests
-from lxml.html import fromstring
 
 import ztfsub.utils
 
 def get_ps1(opts,imagefile,ra,dec,filt):
 
-    ps1Dir = '%s/ps1'%opts.dataDir
+    ps1Dir = '%s/ps1'%opts.subtractionDir
     if not os.path.isdir(ps1Dir):
         os.makedirs(ps1Dir)
 
-    ps1ResampleDir = '%s/ps1_resample'%opts.dataDir
+    ps1ResampleDir = '%s/ps1_resample'%opts.subtractionDir
     if not os.path.isdir(ps1ResampleDir):
         os.makedirs(ps1ResampleDir)
 
@@ -45,7 +44,7 @@ def get_ps1(opts,imagefile,ra,dec,filt):
     if len(lines) == 0:
         rm_command = "rm %s"%listfile
         os.system(rm_command)
-        print "No PS1 images available... returning."
+        print("No PS1 images available... returning.")
         return False
 
     fid = open(listfile,'w')
@@ -97,11 +96,11 @@ def get_ps1(opts,imagefile,ra,dec,filt):
 
 def get_sdss(opts,imagefile,ra,dec,filt):
 
-    sdssDir = '%s/sdss'%opts.dataDir
+    sdssDir = '%s/sdss'%opts.subtractionDir
     if not os.path.isdir(sdssDir):
         os.makedirs(sdssDir)
 
-    sdssResampleDir = '%s/sdss_resample'%opts.dataDir
+    sdssResampleDir = '%s/sdss_resample'%opts.subtractionDir
     if not os.path.isdir(sdssResampleDir):
         os.makedirs(sdssResampleDir)
 
@@ -171,7 +170,7 @@ def get_sdss(opts,imagefile,ra,dec,filt):
     if len(lines) == 0:
         rm_command = "rm %s"%listfile
         os.system(rm_command)
-        print "No SDSS images available... returning."
+        print("No SDSS images available... returning.")
         return False
 
     swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d  -PIXEL_SCALE 0.396127 -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml'%(listfile,opts.defaultsDir,ra,dec,opts.image_size,opts.image_size,imagefile,opts.tmpDir,sdssResampleDir,opts.tmpDir)
@@ -197,11 +196,11 @@ def get_ztf(opts,imagefile,imagenum):
     linksFile = '%s/links.txt'%opts.outputDir
     links = [line.rstrip('\n') for line in open(linksFile)]
 
-    ztfDir = '%s/ztf'%opts.dataDir
+    ztfDir = '%s/ztf'%opts.subtractionDir
     if not os.path.isdir(ztfDir):
         os.makedirs(ztfDir)
 
-    ztfResampleDir = '%s/ztf_resample'%opts.dataDir
+    ztfResampleDir = '%s/ztf_resample'%opts.subtractionDir
     if not os.path.isdir(ztfResampleDir):
         os.makedirs(ztfResampleDir)
 
@@ -260,7 +259,7 @@ def get_ztf(opts,imagefile,imagenum):
     Iids = np.where(coord_distance.deg <= Threshold)[0]
 
     if len(Iids) == 0:
-        print "No ZTF images available... returning."
+        print("No ZTF images available... returning.")
         return False
 
     fid = open(listfile,'w')
@@ -284,15 +283,15 @@ def get_ztf(opts,imagefile,imagenum):
 
 def get_ptf(opts,imageDir,ra=None,ra_size=None,dec=None,dec_size=None):
 
-    zeropointFile = '%s/ptf/PrelimUp.cal'%opts.dataDir
+    zeropointFile = '%s/ptf/PrelimUp.cal'%opts.subtractionDir
     zeropoints = [line.rstrip('\n') for line in open(zeropointFile)]
     zeropoints = zeropoints[1:]
 
-    ptfResampleDir = '%s/ptf_resample/%s'%(opts.dataDir,opts.field)
+    ptfResampleDir = '%s/ptf_resample/%s'%(opts.subtractionDir,opts.field)
     if not os.path.isdir(ptfResampleDir):
         os.makedirs(ptfResampleDir)
 
-    images = glob.glob('%s/ptf/%s/*.fits'%(opts.dataDir,opts.field))
+    images = glob.glob('%s/ptf/%s/*.fits'%(opts.subtractionDir,opts.field))
 
     raimages, decimages = [], []
     data = {}
@@ -354,7 +353,7 @@ def get_ptf(opts,imageDir,ra=None,ra_size=None,dec=None,dec_size=None):
         Iids = np.where(coord_distance.deg <= Threshold)[0]
 
         if len(Iids) == 0:
-            print "No PTF images available... returning."
+            print("No PTF images available... returning.")
             return [], False, []
 
         fid = open(listfile,'w')
@@ -387,11 +386,11 @@ def get_ptf(opts,imageDir,ra=None,ra_size=None,dec=None,dec_size=None):
 
 def get_p60(opts,imagefile,imagenum):
 
-    p60Dir = '%s/p60'%opts.dataDir
+    p60Dir = '%s/p60'%opts.subtractionDir
     if not os.path.isdir(p60Dir):
         os.makedirs(p60Dir)
 
-    p60ResampleDir = '%s/p60_resample'%opts.dataDir
+    p60ResampleDir = '%s/p60_resample'%opts.subtractionDir
     if not os.path.isdir(p60ResampleDir):
         os.makedirs(p60ResampleDir)
 
