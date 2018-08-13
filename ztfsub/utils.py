@@ -5,6 +5,7 @@ import copy, os, shutil, glob, sys, string, re, math, operator, numpy, time
 from types import *
 
 import numpy as np
+import datetime
 
 from astropy.io import fits
 from astropy.wcs import WCS
@@ -336,6 +337,39 @@ def sextractor(imagefile,defaultsDir,doSubtractBackground=False,doPS1Params=Fals
             hdulist[ii].data=hdulist[ii].data-hdulistback[ii].data
         hdulist.writeto(imagefile,clobber=True)        
 
+def utcparser(utcstart):
+        """
+        Datetime parser for CHIMERA UTCSTART header keyword.
+
+        Parameters
+        ----------
+        utcstart : string
+            Datetime for start of frame (in UTC)
+
+        Returns
+        -------
+        dt : datetime struct
+            Datetime structure
+        """
+
+        MONTHS = {"Jan": 1, "Feb": 2, "March": 3, "Mar": 3, "April": 4, "May": 5, "June": 6, "July": 7, "Aug": 8, "Sept": 9, "Oct": 10, "Nov": 11, "Dec": 12}
+
+        month, date, year, time = utcstart.split("-")
+        month = MONTHS[month]
+        date = int(date)
+        year = int(year)
+
+        hour, minu, sec = time.split(":")
+        hour = int(hour)
+        minu = int(minu)
+        sec, ms = sec.split(".")
+        sec = int(sec)
+        ms = int(ms) * 1000
+
+        dt = datetime.datetime(year, month, date, hour, minu, sec, ms)
+
+        return Time(dt)
+
 def forcedphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0):
 
     hdulist=fits.open(imagefile)
@@ -352,24 +386,32 @@ def forcedphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0):
     forcedfile = imagefile.replace(".fits",".forced")
     fid = open(forcedfile,'w')
 
-    mjds, mags, magerrs, fluxes, fluxerrs = [], [], [], [], []
-    for ii, hdu in enumerate(hdulist):
-        if ii == 0: continue
-        header = hdulist[ii].header
-        image = hdulist[ii].data
-        dateobs = Time(header["DATE"])
-        mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False)
+    if len(hdulist) == 1:
+        header = hdulist[0].header
+        image = hdulist[0].data
+        dateobs = utcparser(header["UTCSTART"])
+        mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False)    
+        return dateobs.mjd, mag, magerr, flux, fluxerr
 
-        mjds.append(dateobs.mjd)
-        mags.append(mag)
-        magerrs.append(magerr)
-        fluxes.append(flux)
-        fluxerrs.append(fluxerr)
+    else: 
+        mjds, mags, magerrs, fluxes, fluxerrs = [], [], [], [], []
+        for ii, hdu in enumerate(hdulist):
+            if ii == 0: continue
+            header = hdulist[ii].header
+            image = hdulist[ii].data
+            dateobs = Time(header["DATE"])
+            mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False)
 
-        fid.write('%.5f %.5f %.5f %.5f %.5f\n'%(dateobs.mjd,mag,magerr,flux,fluxerr))
-    fid.close()
+            mjds.append(dateobs.mjd)
+            mags.append(mag)
+            magerrs.append(magerr)
+            fluxes.append(flux)
+            fluxerrs.append(fluxerr)
 
-    return np.array(mjds), np.array(mags), np.array(magerrs), np.array(fluxes), np.array(fluxerrs)
+            fid.write('%.5f %.5f %.5f %.5f %.5f\n'%(dateobs.mjd,mag,magerr,flux,fluxerr))
+        fid.close()
+
+        return np.array(mjds), np.array(mags), np.array(magerrs), np.array(fluxes), np.array(fluxerrs)
 
 
 def get_links(minday = -1, day = None):

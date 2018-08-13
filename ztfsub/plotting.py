@@ -39,6 +39,7 @@ def plot_image(fitsfile,plotName,ra=None,dec=None,fwhm=None,catfile=None):
     if not ra == None:
         f1.show_circles(ra,dec,fwhm/3600.0,zorder=99,linestyle='dashed', edgecolor='white')
     if not catfile == None:
+        #if True:
         try:
             cat = np.loadtxt(catfile)
             if cat.size:
@@ -48,9 +49,9 @@ def plot_image(fitsfile,plotName,ra=None,dec=None,fwhm=None,catfile=None):
                     xs, ys, fluxes, fluxerrs, mags, magerrs, ras, decs, A, B, A_world, B_world, theta, theta_world, fwhms, fwhms_world, extnumber = cat[0], cat[1], cat[2], cat[3], cat[4], cat[5], cat[6], cat[7], cat[8], cat[9], cat[10], cat[11], cat[12], cat[13], cat[14], cat[15], cat[16]
 
                 try:
-                    f1.show_circles(ras,decs,fwhms,zorder=99,linestyle='dashed', edgecolor='red')
+                    f1.show_circles(ras,decs,fwhms_world,zorder=99,linestyle='dashed', edgecolor='red')
                 except:
-                    plt.scatter(xs,ys,s=fwhms,zorder=99,facecolors='none', edgecolors='green')
+                    plt.scatter(xs,ys,s=fwhms_world,zorder=99,facecolors='none', edgecolors='green')
 
         except:
             hdulist=astropy.io.fits.open(catfile)
