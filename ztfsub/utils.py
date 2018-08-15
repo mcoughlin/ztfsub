@@ -370,12 +370,11 @@ def utcparser(utcstart):
 
         return Time(dt)
 
-def forcedphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0):
+def forcedphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=1.0):
 
     hdulist=fits.open(imagefile)
     header = fits.getheader(imagefile)
 
-    gain = 1.0
     if x == None:
         w = WCS(header)
         x0,y0 = w.wcs_world2pix(ra,dec,1)
