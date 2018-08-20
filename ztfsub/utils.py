@@ -388,9 +388,14 @@ def forcedphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,ga
     if len(hdulist) == 1:
         header = hdulist[0].header
         image = hdulist[0].data
-        dateobs = utcparser(header["UTCSTART"])
         mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False)    
-        return dateobs.mjd, mag, magerr, flux, fluxerr
+        if "UTCSTART" in header:
+            dateobs = utcparser(header["UTCSTART"])
+            mjd = dateobs.mjd
+        else:
+            mjd = -1
+
+        return mjd, mag, magerr, flux, fluxerr
 
     else: 
         mjds, mags, magerrs, fluxes, fluxerrs = [], [], [], [], []
