@@ -382,18 +382,51 @@ def forcedphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,ga
     else:
         x0,y0 = x, y
 
+    image = hdulist[0].data
+    image_shape = image.shape
+
     forcedfile = imagefile.replace(".fits",".forced")
     fid = open(forcedfile,'w')
 
-    if len(hdulist) == 1:
+    if len(image_shape) == 3:
+
+        nhdu, xshape, yshape = image.shape
+        dateobs = utcparser(hdulist[0].header["UTCSTART"])
+        mjd = dateobs.mjd
+        mjdall = mjd + np.arange(nhdu)*hdulist[0].header["EXPTIME"]/86400.0
+
+        mjds, mags, magerrs, fluxes, fluxerrs = [], [], [], [], []
+        for jj in range(nhdu):
+            image = hdulist[0].data[jj,:,:]
+            mjd = mjdall[jj]
+
+            mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False)
+
+            mjds.append(mjd)
+            mags.append(mag)
+            magerrs.append(magerr)
+            fluxes.append(flux)
+            fluxerrs.append(fluxerr)
+
+            fid.write('%.5f %.5f %.5f %.5f %.5f\n'%(dateobs.mjd,mag,magerr,flux,fluxerr))
+        fid.close()
+
+        return np.array(mjds), np.array(mags), np.array(magerrs), np.array(fluxes), np.array(fluxerrs)
+
+    elif len(hdulist) == 1:
         header = hdulist[0].header
         image = hdulist[0].data
-        mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False)    
+        exptime = header["EXPTIME"]
+
+        mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False,exptime=exptime)    
         if "UTCSTART" in header:
             dateobs = utcparser(header["UTCSTART"])
             mjd = dateobs.mjd
         else:
             mjd = -1
+
+        print(image.shape)
+        print(stop)
 
         return mjd, mag, magerr, flux, fluxerr
 
