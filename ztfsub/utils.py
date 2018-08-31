@@ -382,7 +382,10 @@ def forcedphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,ga
     else:
         x0,y0 = x, y
 
-    image = hdulist[0].data
+    if len(hdulist) > 3:
+       image = hdulist[1].data
+    else:
+       image = hdulist[0].data
     image_shape = image.shape
 
     forcedfile = imagefile.replace(".fits",".forced")
