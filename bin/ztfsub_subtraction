@@ -11,6 +11,7 @@ from astropy.table import Table
 import matplotlib.path as mplPath
 import h5py    
 from astropy.io import fits
+from astropy.coordinates import Angle
 import aplpy
 
 import requests
@@ -26,16 +27,19 @@ def parse_commandline():
     parser = optparse.OptionParser()
 
     parser.add_option("--dataDir",default="../data")
+    parser.add_option("--subtractionDir",default="../subtraction")
     parser.add_option("-t","--tmpDir",default="/tmp")
     parser.add_option("-i","--inputDir",default="../input")
     parser.add_option("-o","--outputDir",default="../output")
     parser.add_option("-d","--defaultsDir",default="../defaults")
-    parser.add_option("--source1",default="ztf")
-    parser.add_option("--source2",default="ztf")
-    parser.add_option("--ra",default=None,type=float)
-    parser.add_option("--declination",default=None,type=float)
+    parser.add_option("--source1",default="local")
+    parser.add_option("--source2",default="legacy")
+    parser.add_option("--ra",default=None)
+    parser.add_option("--declination",default=None)
     parser.add_option("--imagenum1",default=None)
     parser.add_option("--imagenum2",default=None)    
+    parser.add_option("--imagefile1",default=None)
+    parser.add_option("--imagefile2",default=None)
     parser.add_option("--image_size",default=1000,type=int)
     parser.add_option("--doLinks",  action="store_true", default=False)
     parser.add_option("--doPlots",  action="store_true", default=False)
@@ -51,11 +55,26 @@ def parse_commandline():
 opts = parse_commandline()
 imagenum1 = opts.imagenum1
 imagenum2 = opts.imagenum2
+imagefile1 = opts.imagefile1
+imagefile2 = opts.imagefile2
 image_size = opts.image_size
 inputDir = opts.inputDir
 outputDir = opts.outputDir
 defaultsDir = opts.defaultsDir
 dataDir = opts.dataDir
+ra = opts.ra
+declination = opts.declination
+
+if opts.source1 == "local":
+    imagefile1Split = imagefile1.split("/")[-1]
+    imagenum1 = imagefile1Split.replace(".fits","")
+
+if ":" in ra:
+    ra_hex = Angle(ra,u.hr)
+    ra = float(ra_hex.degree)
+if ":" in declination:
+    declination_hex = Angle(declination,u.deg)
+    declination = float(declination_hex.degree)
 
 linksFile = '%s/links.txt'%outputDir
 if not os.path.isdir(outputDir):
@@ -88,14 +107,14 @@ tiles = np.loadtxt(tilesFile,comments='%')
 
 if opts.source2 == "ztf":
     if not opts.ra == None:
-        path_out_dir='%s/%s_%s/%.5f_%.5f'%(outputDir,opts.imagenum1,opts.imagenum2,opts.ra,opts.declination)
+        path_out_dir='%s/%s_%s/%.5f_%.5f'%(outputDir,imagenum1,imagenum2,ra,declination)
     else:
-        path_out_dir='%s/%s_%s'%(outputDir,opts.imagenum1,opts.imagenum2)
-elif (opts.source2 == "sdss") or (opts.source2 == "ps1"):
+        path_out_dir='%s/%s_%s'%(outputDir,imagenum1,imagenum2)
+elif (opts.source2 == "sdss") or (opts.source2 == "ps1") or (opts.source2 == "legacy"):
     if not opts.ra == None:
-        path_out_dir='%s/%s/%.5f_%.5f'%(outputDir,opts.imagenum1,opts.ra,opts.declination)
+        path_out_dir='%s/%s/%.5f_%.5f'%(outputDir,imagenum1,ra,declination)
     else:
-        path_out_dir='%s/%s'%(outputDir,opts.imagenum1)
+        path_out_dir='%s/%s'%(outputDir,imagenum1)
 
 if opts.doOverwrite:
     rm_command = "rm -rf %s"%path_out_dir
@@ -110,11 +129,13 @@ if not os.path.isfile(scienceimage):
         scigood = ztfsub.surveys.get_ztf(opts,scienceimage,opts.imagenum1)
     elif opts.source1 == "p60":
         scigood = ztfsub.surveys.get_p60(opts,scienceimage,opts.imagenum1)
+    elif opts.source1 == "local":
+        scigood = ztfsub.surveys.get_local(opts,scienceimage,opts.imagefile1)
     else:
         print("ZTF and P60 implemented only...")
         exit(0)
     if not scigood:
-        print "Science image does not have data..."
+        print("Science image does not have data...")
         exit(0)
 else:
     scigood = True
@@ -122,31 +143,29 @@ else:
 hdulist=fits.open(scienceimage)
 header = hdulist[0].header
 if not opts.ra == None:
-    ra = opts.ra
-else:
     ra, junk = ztfsub.utils.get_radec_from_wcs(scienceimage)
 if not opts.declination == None:
-    dec = opts.declination
-else:
-    junk, dec = ztfsub.utils.get_radec_from_wcs(scienceimage)
+    junk, declination = ztfsub.utils.get_radec_from_wcs(scienceimage)
 
 if not os.path.isfile(refimage):
     if opts.source2 == "ztf":
         refgood = ztfsub.surveys.get_ztf(opts,refimage,opts.imagenum2)
     elif opts.source2 == "sdss":
-        refgood = ztfsub.surveys.get_sdss(opts,refimage,ra,dec,'r')
+        refgood = ztfsub.surveys.get_sdss(opts,refimage,ra,declination,'r')
     elif opts.source2 == "ps1":
-        refgood = ztfsub.surveys.get_ps1(opts,refimage,ra,dec,'r')    
+        refgood = ztfsub.surveys.get_ps1(opts,refimage,ra,declination,'r')    
+    elif opts.source2 == "legacy":
+        refgood = ztfsub.surveys.get_legacy(opts,refimage,ra,declination,'r')
 else:
     refgood = True
 
 if not refgood:
-    print "Reference image does not have data..."
+    print("Reference image does not have data...")
     exit(0)
 hdulistsci=fits.open(scienceimage)
 hdulistref=fits.open(refimage)
 if (np.nansum(hdulistsci[0].data) == 0.0) or (np.nansum(hdulistref[0].data) == 0.0):
-    print "Either science or reference image does not have data..."
+    print("Either science or reference image does not have data...")
     exit(0) 
 
 if opts.doAstrometryNet:
@@ -162,7 +181,7 @@ if opts.doPlots:
 ztfsub.utils.sextractor(scienceimage,defaultsDir,doSubtractBackground=opts.doSubtractBackground)
 ztfsub.utils.sextractor(refimage,defaultsDir,doSubtractBackground=opts.doSubtractBackground)
 
-ztfsub.utils.p60sdsssub(opts, scienceimage, refimage, [ra,dec], 
+ztfsub.utils.p60sdsssub(opts, scienceimage, refimage, [ra,declination], 
                distortdeg=1, scthresh1=3.0,
                scthresh2=10.0, tu=5000, iu=5000, ig=2.3, tg=1.0,
                stamps=None, nsx=4, nsy=4, ko=0, bgo=0, radius=10,
@@ -174,7 +193,7 @@ ztfsub.utils.sextractor(scienceimageshift,defaultsDir,doSubtractBackground=opts.
 
 hdulistscishift=fits.open(scienceimageshift)
 if np.nansum(hdulistscishift[0].data) == 0.0:
-    print "Shifted science does not have data..."
+    print("Shifted science does not have data...")
     exit(0)
 
 imagesub = scienceimage.replace(".fits",".sub.fits")

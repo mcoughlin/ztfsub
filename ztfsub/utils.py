@@ -32,6 +32,7 @@ def get_radec_from_wcs(fitsfile,ext=0):
  
     w = WCS(header)
     ra, dec = w.wcs_pix2world(float(header['NAXIS1'])/2.0, float(header['NAXIS2'])/2.0,1)
+
     return ra, dec
 
 def get_radec_limits_from_wcs(fitsfile):
@@ -92,6 +93,8 @@ def p60hotpants(inlis, refimage, outimage, tu=50000, iu=50000, ig=2.3, tg=2.3,
                 scmd+="%i %.2f " % (ngref[k], ngref[k+1]*float(seepix)/3.0)
         if (scimage==True):
             scmd += ' -n i '
+
+        #scmd += "-oni noise.fits -ond noise_diff.fits -oci convolved.fits"
 
         cmd=os.popen(scmd,'r')
         hlines=cmd.readlines()
@@ -216,7 +219,7 @@ def p60sdsssub(opts, inlis, refimage, ot, distortdeg=1, scthresh1=3.0,
             pix = 0.26
         else:
             pix=0.396
- 
+
     for image in images:
 
         root=image.split('.fits')[0]
@@ -384,6 +387,8 @@ def forcedphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,ga
 
     if len(hdulist) > 3:
        image = hdulist[1].data
+    elif len(hdulist) == 2:
+       image = hdulist[0].data
     else:
        image = hdulist[0].data
     image_shape = image.shape
@@ -424,6 +429,19 @@ def forcedphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,ga
         mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False,exptime=exptime)    
         if "UTCSTART" in header:
             dateobs = utcparser(header["UTCSTART"])
+            mjd = dateobs.mjd
+        else:
+            mjd = -1
+
+        return mjd, mag, magerr, flux, fluxerr
+
+    elif len(hdulist) == 2:
+        header = hdulist[0].header
+        image = hdulist[0].data
+
+        mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False)
+        if "DATE" in header:
+            dateobs = Time(header["DATE"])
             mjd = dateobs.mjd
         else:
             mjd = -1

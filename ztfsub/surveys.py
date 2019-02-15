@@ -17,6 +17,114 @@ import requests
 
 import ztfsub.utils
 
+def get_legacy(opts,imagefile,ra,dec,filt):
+
+    legacyDir = '%s/legacy'%opts.subtractionDir
+    if not os.path.isdir(legacyDir):
+        os.makedirs(legacyDir)
+
+    legacyResampleDir = '%s/legacy_resample'%opts.subtractionDir
+    if not os.path.isdir(legacyResampleDir):
+        os.makedirs(legacyResampleDir)
+
+    BaseURL = "http://portal.nersc.gov/project/cosmo/data/legacysurvey/dr7/"
+    surveyfile = "%s/survey-bricks.fits.gz"%legacyDir
+    if not os.path.isfile(surveyfile):
+        wget_command = 'wget "%s/survey-bricks.fits.gz" -O %s'%(BaseURL,surveyfile)
+        os.system(wget_command)
+
+    surveyfiledr7 = "%s/survey-bricks-dr7.fits.gz"%legacyDir
+    if not os.path.isfile(surveyfile):
+        wget_command = 'wget "%s/survey-bricks-dr7.fits.gz" -O %s'%(BaseURL,surveyfiledr7)
+        os.system(wget_command)
+
+    hdulist=fits.open(surveyfile)
+    binhdu = hdulist[1]
+    BRICKNAME, RA, DEC = binhdu.data["BRICKNAME"], np.deg2rad(binhdu.data["RA"]), np.deg2rad(binhdu.data["DEC"])
+    RA1, DEC1, RA2, DEC2 = np.deg2rad(binhdu.data["RA1"]), np.deg2rad(binhdu.data["DEC1"]), np.deg2rad(binhdu.data["RA2"]), np.deg2rad(binhdu.data["DEC2"])
+
+    hdulist2=fits.open(surveyfiledr7)
+    binhdu = hdulist2[1]
+    BRICKNAME_DR7 = binhdu.data["brickname"]
+
+    indices = np.where(np.in1d(BRICKNAME, BRICKNAME_DR7))[0]
+    BRICKNAME, RA, DEC = BRICKNAME[indices], RA[indices], DEC[indices] 
+    RA1, DEC1, RA2, DEC2 = RA1[indices], DEC1[indices], RA2[indices], DEC2[indices]
+
+    catcoord = SkyCoord(RA*u.rad,DEC*u.rad,frame='icrs')
+    #%%%%%%%%%%%%check if the sdss ref already exists in ../SN/refs/, each band
+    #sdss_bands=['u','g','r','i','z']
+    #sdss_bands=['g','r']
+    ra_box = np.arange(-0.2,0.3,0.1)
+    dec_box = np.arange(-0.2,0.3,0.1)
+
+    N = 10
+    listfile = opts.tmpDir + "/legacy_" + filt + "_list_" + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(N)) + '.txt'
+
+    Threshold  = 0.3
+    fid = open(listfile,'w')
+    for ii in xrange(len(ra_box)):
+        for jj in xrange(len(dec_box)):
+            thisra = np.deg2rad(ra + ra_box[ii])
+            thisdec = np.deg2rad(dec + dec_box[jj])
+
+            coord = SkyCoord(thisra*u.rad,thisdec*u.rad,frame='icrs')
+            coord_distance = catcoord.separation(coord)
+
+            Iids = np.where(coord_distance.deg <= Threshold)[0]
+            for Iid in Iids:
+                bbPath = mplPath.Path(np.array([[RA1[Iid],DEC1[Iid]],[RA2[Iid],DEC1[Iid]],[RA2[Iid],DEC2[Iid]],[RA1[Iid],DEC2[Iid]]]))
+                print(bbPath)
+                check1 = bbPath.contains_point((thisra, thisdec))
+                check2 = bbPath.contains_point((thisra-2*np.pi, thisdec))
+                check3 = bbPath.contains_point((thisra+2*np.pi, thisdec))
+
+                check = check1 or check2 or check3
+                if not check: continue
+
+                ccd = BRICKNAME[Iid].split("p")[0][:3]
+
+                URL = '%s/coadd/%s/%s/legacysurvey-%s-image-%s.fits.fz'%(BaseURL,ccd,BRICKNAME[Iid],BRICKNAME[Iid],filt)
+
+                FileName = 'legacysurvey-%s-image-%s.fits.fz'%(BRICKNAME[Iid],filt)
+                FileNameFits = 'legacysurvey-%s-image-%s.fits'%(BRICKNAME[Iid],filt)
+                FileNameFitsPath = '%s/legacysurvey-%s-image-%s.fits'%(legacyDir,BRICKNAME[Iid],filt)
+                Link = '%s%s'%(URL,FileName)
+
+                fid.write('%s\n'%(FileNameFitsPath))
+                if os.path.isfile(FileNameFitsPath): continue
+
+                wget_command = "wget %s"%Link
+                os.system(wget_command)
+                bunzip2_command = "funpack %s"%FileName
+                os.system(bunzip2_command)
+
+                mv_command = 'mv %s %s'%(FileNameFits,legacyDir)
+                os.system(mv_command)
+
+    fid.close()
+
+    lines = [line.rstrip('\n') for line in open(listfile)]
+    if len(lines) == 0:
+        rm_command = "rm %s"%listfile
+        os.system(rm_command)
+        print("No SDSS images available... returning.")
+        return False
+
+    swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d  -PIXEL_SCALE 0.396127 -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml'%(listfile,opts.defaultsDir,ra,dec,opts.image_size,opts.image_size,imagefile,opts.tmpDir,sdssResampleDir,opts.tmpDir)
+    os.system(swarp_command)
+
+    # replace borders with NaNs in ref image if there are any that are == 0,
+    hdulist=fits.open(imagefile)
+    hdulist[0].data[hdulist[0].data==0]=np.nan
+    # scale values
+    #hdulist[0].data = hdulist[0].data*100.0/np.nanstd(hdulist[0].data)
+    hdulist[0].data = hdulist[0].data + 1000
+    #hdulist[0].data = hdulist[0].data*100.0/np.nanstd(hdulist[0].data)
+    hdulist.writeto(imagefile,overwrite=True)
+
+    return True
+
 def get_ps1(opts,imagefile,ra,dec,filt):
 
     ps1Dir = '%s/ps1'%opts.subtractionDir
@@ -94,7 +202,7 @@ def get_ps1(opts,imagefile,ra,dec,filt):
 
     return True
 
-def get_sdss(opts,imagefile,ra,dec,filt):
+def get_sdss(opts,imagefile,ra,dec,filt,pixel_scale):
 
     sdssDir = '%s/sdss'%opts.subtractionDir
     if not os.path.isdir(sdssDir):
@@ -170,10 +278,10 @@ def get_sdss(opts,imagefile,ra,dec,filt):
     if len(lines) == 0:
         rm_command = "rm %s"%listfile
         os.system(rm_command)
-        print("No SDSS images available... returning.")
+        print("No Legacy images available... returning.")
         return False
 
-    swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d  -PIXEL_SCALE 0.396127 -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml'%(listfile,opts.defaultsDir,ra,dec,opts.image_size,opts.image_size,imagefile,opts.tmpDir,sdssResampleDir,opts.tmpDir)
+    swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d  -PIXEL_SCALE 0.396127 -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml'%(listfile,opts.defaultsDir,ra,dec,opts.image_size,opts.image_size,pixel_scale,imagefile,opts.tmpDir,sdssResampleDir,opts.tmpDir)
     os.system(swarp_command)
 
     # replace borders with NaNs in ref image if there are any that are == 0,
@@ -189,6 +297,15 @@ def get_sdss(opts,imagefile,ra,dec,filt):
     os.system(rm_command)
     rm_command = "rm *.bz2"
     os.system(rm_command)
+
+    return True
+
+def get_local(opts,imagefile,origimage):
+
+    # replace borders with NaNs in ref image if there are any that are == 0,
+    hdulist=fits.open(origimage)
+    hdulist[0].data[hdulist[0].data==0]=np.nan
+    hdulist.writeto(imagefile,overwrite=True)
 
     return True
 
