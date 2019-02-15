@@ -301,18 +301,26 @@ def p60scamp(opts, inlis, refimage=None, distortdeg=3, scthresh1=5.0,
 
     print "Exiting successfully"
 
-def astrometrynet(imagefile,pixel_scale=0.18,ra=None, dec=None, radius=1.0,depth=None,ext=0):
+def astrometrynet(imagefile,pixel_scale=0.18,ra=None, dec=None, radius=1.0,depth=None,ext=0,cutedges=0):
+
+    if cutedges>0:
+        hdulist=fits.open(imagefile)
+        for ii in range(len(hdulist)):
+            if hdulist[ii].data is None: continue
+            hdulist[ii].data=hdulist[ii].data[cutedges:-cutedges,cutedges:-cutedges] 
+        hdulist.writeto(imagefile,clobber=True)
 
     if not depth == None:
         if not ra == None:
-            os.system('solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ra %.5f --dec %.5f --radius %.5f --ext %d' % (imagefile,pixel_scale/2.0,pixel_scale*2.0,ra,dec,radius,ext))
+            system_command = 'solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ra %.5f --dec %.5f --radius %.5f --ext %d' % (imagefile,pixel_scale/2.0,pixel_scale*2.0,ra,dec,radius,ext)
         else:
-            os.system('solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ext %d' % (imagefile,pixel_scale/2.0,pixel_scale*2.0,ext))
+            system_command = 'solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ext %d' % (imagefile,pixel_scale/2.0,pixel_scale*2.0,ext)
     else:
         if not ra == None:
-            os.system('solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ra %.5f --dec %.5f --radius %.5f --ext %d'% (imagefile,pixel_scale/2.0,pixel_scale*2.0,ra,dec,radius,ext))
+            system_command = 'solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ra %.5f --dec %.5f --radius %.5f --ext %d'% (imagefile,pixel_scale/2.0,pixel_scale*2.0,ra,dec,radius,ext)
         else:
-            os.system('solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ext %d' % (imagefile,pixel_scale/2.0,pixel_scale*2.0,ext))
+            system_command = 'solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ext %d' % (imagefile,pixel_scale/2.0,pixel_scale*2.0,ext)
+    os.system(system_command)
 
     try:
         shutil.move(imagefile.replace(".fits",".new"), imagefile)
@@ -426,7 +434,11 @@ def forcedphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,ga
         image = hdulist[0].data
         exptime = header["EXPTIME"]
 
-        mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False,exptime=exptime)    
+        try:
+            mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False,exptime=exptime)    
+        except:
+            mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False)
+
         if "UTCSTART" in header:
             dateobs = utcparser(header["UTCSTART"])
             mjd = dateobs.mjd
