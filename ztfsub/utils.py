@@ -479,6 +479,10 @@ def forcedphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,ga
             if ii == 0: continue
             header = hdulist[ii].header
             image = hdulist[ii].data
+            if not "DATE" in header:
+                print("Warning: 'DATE missing from %s hdu %d/%d"%(imagefile,ii,len(hdulist)))
+                continue
+
             dateobs = Time(header["DATE"])
             mag,magerr,flux,fluxerr,sky,skyerr,badflag,outstr = pp.aper.aper(image,x0,y0,phpadu=gain,apr=fwhm,zeropoint=zp,skyrad=[3*fwhm,5*fwhm],exact=False)
 
