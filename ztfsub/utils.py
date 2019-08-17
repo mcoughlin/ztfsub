@@ -410,7 +410,7 @@ def forcedphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,ga
         dateobs = utcparser(hdulist[0].header["UTCSTART"])
         mjd = dateobs.mjd
 
-        if "KINCYCTI" in np.arange(nhdu)*hdulist[0].header:
+        if "KINCYCTI" in hdulist[0].header:
             mjdall = mjd + np.arange(nhdu)*hdulist[0].header["KINCYCTI"]/86400.0
         else:
             mjdall = mjd + np.arange(nhdu)*hdulist[0].header["EXPTIME"]/86400.0
