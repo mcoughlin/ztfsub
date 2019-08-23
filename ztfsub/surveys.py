@@ -17,6 +17,52 @@ import requests
 
 import ztfsub.utils
 
+def get_decals(opts,imagefile,ra,dec,filt):
+
+    decalsDir = '%s/decals'%opts.subtractionDir
+    if not os.path.isdir(decalsDir):
+        os.makedirs(decalsDir)
+
+    decalsResampleDir = '%s/decals_resample'%opts.subtractionDir
+    if not os.path.isdir(decalsResampleDir):
+        os.makedirs(decalsResampleDir)
+
+    if os.path.isfile(imagefile):
+        return
+
+    imagetmp = opts.tmpDir + "/legacy.fits"
+    if os.path.isdir(imagetmp):
+        rm_command = "rm %s" % imagetmp
+        os.system(rm_command) 
+
+    wget_command = 'wget "http://legacysurvey.org/viewer/fits-cutout?ra=%.5f&dec=%.5f&layer=dr8-south&bands=%s&size=%d&pixscale=0.3" -O %s'%(ra,dec,filt,opts.image_size,imagetmp) 
+    os.system(wget_command)
+
+    N = 10
+    listfile = opts.tmpDir + "/legacy_" + filt + "_list_" + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(N)) + '.txt'
+
+    fid = open(listfile,'w')
+    fid.write('%s\n'%(imagetmp))
+    fid.close()
+
+    image_scale = 2.0
+    image_size = int(opts.image_size*image_scale)
+
+    swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d  -PIXEL_SCALE 0.30 -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml -COPY_KEYWORDS PIXEL_SCALE'%(listfile,opts.defaultsDir,ra,dec,image_size,image_size,imagefile,opts.tmpDir,decalsResampleDir,opts.tmpDir)
+    os.system(swarp_command)
+
+    # replace borders with NaNs in ref image if there are any that are == 0,
+    hdulist=fits.open(imagefile)
+    hdulist[0].data[hdulist[0].data==0]=np.nan
+    hdulist.writeto(imagefile,overwrite=True)
+
+    rm_command = "rm *.fits"
+    os.system(rm_command)
+    rm_command = "rm *.bz2"
+    os.system(rm_command)
+
+    return True
+
 def get_legacy(opts,imagefile,ra,dec,filt):
 
     legacyDir = '%s/legacy'%opts.subtractionDir
@@ -158,13 +204,13 @@ def get_ps1(opts,imagefile,ra,dec,filt):
     fid = open(listfile,'w')
     for line in lines:
         lineSplit = line.split(" ")
-        datafits = lineSplit[-2]
-        datafitsshort = lineSplit[-1]
+        datafits = lineSplit[-3]
+        datafitsshort = lineSplit[-2]
         datafitsshort = datafitsshort.replace(".","_").replace("_fits",".fits")
 
         Link = '%s%s'%(BaseURL,datafits)
         FileNameFitsPath = '%s/%s'%(ps1Dir,datafitsshort)
-  
+
         fid.write('%s\n'%(FileNameFitsPath))
         if os.path.isfile(FileNameFitsPath): continue
 
