@@ -217,6 +217,8 @@ def p60sdsssub(opts, inlis, refimage, ot, distortdeg=1, scthresh1=3.0,
             pix = 1.0
         elif "rings" in FILE0001:
             pix = 0.26
+        elif "legacy" in FILE0001:
+            pix = 0.30
         else:
             pix=0.396
 
