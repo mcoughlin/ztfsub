@@ -7,15 +7,114 @@ from matplotlib import pyplot as plt
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
+from astropy.units import Quantity
 
 import matplotlib.path as mplPath
 import h5py
 from astropy.io import fits
+from astropy.utils.data import download_file
 import aplpy
 
 import requests
 
 import ztfsub.utils
+
+def angular_distance(ra1, dec1, ra2, dec2):
+
+    delt_lon = (ra1 - ra2)*np.pi/180.
+    delt_lat = (dec1 - dec2)*np.pi/180.
+    dist = 2.0*np.arcsin( np.sqrt( np.sin(delt_lat/2.0)**2 + \
+         np.cos(dec1*np.pi/180.)*np.cos(dec2*np.pi/180.)*np.sin(delt_lon/2.0)**2 ) )
+
+    return dist/np.pi*180.
+
+def download_deepest_image(ra,dec,fov=1.0/60.0,band='g'):
+    import pyvo.dal
+    from pyvo.dal import sia
+    from dl import authClient as ac
+
+    pos = SkyCoord(ra=ra, dec=dec, unit=(u.deg, u.deg), frame='icrs')
+   
+    url = "https://datalab.noao.edu/sia/des_dr1"
+    svc = sia.SIAService(url) 
+    token = ac.login('anonymous')
+
+    #imgTable = svc.search(pos=pos, size=fov)
+    #print(imgTable)
+    #print(stop)
+   
+    imgTable = pyvo.dal.conesearch(url, pos=pos, radius=fov, maxrec=100000).votable.get_first_table().to_table()
+    sel0 = imgTable['obs_bandpass'].astype(str)==band
+    sel = sel0 & ((imgTable['proctype'].astype(str)=='Stack') & (imgTable['prodtype'].astype(str)=='image')) # basic selection
+    Table = imgTable[sel] # select
+  
+    if (len(Table)>0):
+        #row = Table[np.argmax(Table['exptime'].data.data.astype('float'))] # pick image with longest exposure time
+        #url = row['access_url'].decode() # get the download URL
+        dist = angular_distance(ra, dec, Table["s_ra"].data.data.astype('float'),Table["s_dec"].data.data.astype('float'))
+        idx = np.argmin(dist)
+        row = Table[idx]
+        url = row['access_url'].decode().replace("&extn=1","")
+
+    else:
+        print ('No image available.')
+        url=None
+
+    return url
+
+def get_dr1(opts,imagefile,ra,dec,filt):
+
+    decalsDir = '%s/dr1'%opts.subtractionDir
+    if not os.path.isdir(decalsDir):
+        os.makedirs(decalsDir)
+
+    decalsResampleDir = '%s/dr1_resample'%opts.subtractionDir
+    if not os.path.isdir(decalsResampleDir):
+        os.makedirs(decalsResampleDir)
+
+    if os.path.isfile(imagefile):
+        return
+
+    imagetmp = opts.tmpDir + "/dr1.fits"
+    if os.path.isdir(imagetmp):
+        rm_command = "rm %s" % imagetmp
+        os.system(rm_command)
+
+    url = download_deepest_image(ra,dec,fov=1/3600.0,band=filt)
+    wget_command = 'wget "%s" -O %s'%(url,imagetmp)
+    os.system(wget_command)
+
+    # replace borders with NaNs in ref image if there are any that are == 0,
+    hdu=fits.open(imagetmp)
+    hdu0 = fits.PrimaryHDU(header=hdu[0].header)
+    hdu1 = fits.ImageHDU(header=hdu[1].header,data=hdu[1].data)
+    hdulist = fits.HDUList(hdus=[hdu0,hdu1])
+    hdulist.writeto(imagetmp,overwrite=True)    
+
+    N = 10
+    listfile = opts.tmpDir + "/dr1_" + filt + "_list_" + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(N)) + '.txt'
+
+    fid = open(listfile,'w')
+    fid.write('%s\n'%(imagetmp))
+    fid.close()
+
+    image_scale = 2.0
+    image_size = int(opts.image_size*image_scale)
+
+    swarp_command = 'swarp @%s -c %s/swarp.conf -CENTER %.5f,%.5f -IMAGE_SIZE %d,%d  -PIXEL_SCALE 0.30 -IMAGEOUT_NAME %s -WEIGHTOUT_NAME %s/coadd.weight.fits -RESAMPLE_DIR %s -XML_NAME %s/swarp.xml -COPY_KEYWORDS PIXEL_SCALE'%(listfile,opts.defaultsDir,ra,dec,image_size,image_size,imagefile,opts.tmpDir,decalsResampleDir,opts.tmpDir)
+    os.system(swarp_command)
+
+    # replace borders with NaNs in ref image if there are any that are == 0,
+    hdulist=fits.open(imagefile)
+    hdulist[0].data[hdulist[0].data==0]=np.nan
+    hdulist.writeto(imagefile,overwrite=True)
+
+    rm_command = "rm *.fits"
+    os.system(rm_command)
+    rm_command = "rm *.bz2"
+    os.system(rm_command)
+
+    return True
 
 def get_decals(opts,imagefile,ra,dec,filt):
 
