@@ -303,7 +303,7 @@ def p60scamp(opts, inlis, refimage=None, distortdeg=3, scthresh1=5.0,
 
     print "Exiting successfully"
 
-def astrometrynet(imagefile,pixel_scale=0.18,ra=None, dec=None, radius=1.0,depth=None,ext=0,cutedges=0):
+def astrometrynet(imagefile,pixel_scale=0.18,ra=None, dec=None, radius=1.0,depth=None, index_xyls=None, ext=0, cutedges=0):
 
     if cutedges>0:
         hdulist=fits.open(imagefile)
@@ -312,16 +312,22 @@ def astrometrynet(imagefile,pixel_scale=0.18,ra=None, dec=None, radius=1.0,depth
             hdulist[ii].data=hdulist[ii].data[cutedges:-cutedges,cutedges:-cutedges] 
         hdulist.writeto(imagefile,clobber=True)
 
-    if not depth == None:
-        if not ra == None:
-            system_command = 'solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ra %.5f --dec %.5f --radius %.5f --ext %d' % (imagefile,pixel_scale/2.0,pixel_scale*2.0,ra,dec,radius,ext)
-        else:
-            system_command = 'solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ext %d' % (imagefile,pixel_scale/2.0,pixel_scale*2.0,ext)
+    if not index_xyls == None:
+        hdulist=fits.open(imagefile)
+        xsize,ysize = hdulist[1].data.shape
+        system_command = 'solve-field --odds-to-solve 10000.0 --guess-scale --no-plots --overwrite --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ra %.5f --dec %.5f --radius %.5f --x-column XIMAGE --y-column YIMAGE --sort-ascending --sort-column MAG --width %d --height %d %s' % (pixel_scale/2.0,pixel_scale*2.0,ra,dec,radius,xsize,ysize,index_xyls)
+        print(system_command)
     else:
-        if not ra == None:
-            system_command = 'solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ra %.5f --dec %.5f --radius %.5f --ext %d'% (imagefile,pixel_scale/2.0,pixel_scale*2.0,ra,dec,radius,ext)
+        if not depth == None:
+            if not ra == None:
+                system_command = 'solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ra %.5f --dec %.5f --radius %.5f --ext %d' % (imagefile,pixel_scale/2.0,pixel_scale*2.0,ra,dec,radius,ext)
+            else:
+                system_command = 'solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ext %d' % (imagefile,pixel_scale/2.0,pixel_scale*2.0,ext)
         else:
-            system_command = 'solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ext %d' % (imagefile,pixel_scale/2.0,pixel_scale*2.0,ext)
+            if not ra == None:
+                system_command = 'solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ra %.5f --dec %.5f --radius %.5f --ext %d'% (imagefile,pixel_scale/2.0,pixel_scale*2.0,ra,dec,radius,ext)
+            else:
+                system_command = 'solve-field --guess-scale --no-plots --overwrite %s --scale-units arcsecperpix --scale-low %.5f --scale-high %.5f --ext %d' % (imagefile,pixel_scale/2.0,pixel_scale*2.0,ext)
     os.system(system_command)
 
     try:
