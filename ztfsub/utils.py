@@ -11,6 +11,16 @@ from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.time import Time
 
+from astropy.stats import sigma_clipped_stats
+from photutils.psf import (IterativelySubtractedPSFPhotometry,
+                           BasicPSFPhotometry)
+from photutils import MMMBackground
+from photutils.psf import IntegratedGaussianPRF, DAOGroup
+from photutils.detection import DAOStarFinder
+from photutils.detection import IRAFStarFinder
+from photutils import CircularAperture
+from astropy.modeling.fitting import LevMarLSQFitter
+
 import requests
 from lxml.html import fromstring
 
@@ -141,7 +151,7 @@ def getsdssfits(object, ra, dec, filters=['g', 'r', 'i', 'z'], width=0.15,
     hcmd = os.popen(hdrcmd,'r')
     hlines = hcmd.readlines()
     if re.search("ERROR", hlines[0]):
-        print "Error constructing SDSS reference: %s" % hlines[0]
+        print("Error constructing SDSS reference: %s" % hlines[0])
         return -1
 
     # Loop through filters
@@ -152,7 +162,7 @@ def getsdssfits(object, ra, dec, filters=['g', 'r', 'i', 'z'], width=0.15,
         ecmd = os.popen(excmd, 'r')
         elines = ecmd.readlines()
         if re.search("ERROR", elines[0]):
-            print "Error constructing SDSS reference: %s" % elines[0]
+            print("Error constructing SDSS reference: %s" % elines[0])
             return -1
 
     # Return success
@@ -179,7 +189,7 @@ def getrefstars(object, ra, dec, width=0.15, pmcut=True):
     else:
         stars=Starlist("%s-allpm.reg" % object)
     if len(stars) < 5:
-        print "Error retreiving SDSS reference stars"
+        print("Error retreiving SDSS reference stars")
         return -1
     else:
         return 1
@@ -259,7 +269,7 @@ def p60sdsssub(opts, inlis, refimage, ot, distortdeg=1, scthresh1=3.0,
                   #weighting='constant', apertures=aperture, zmag=25.0, 
                   #interactive=no) 
 
-    print "Exiting successfully"
+    print("Exiting successfully")
     return
     
 def p60scamp(opts, inlis, refimage=None, distortdeg=3, scthresh1=5.0, 
@@ -301,7 +311,7 @@ def p60scamp(opts, inlis, refimage=None, distortdeg=3, scthresh1=5.0,
         scmd=os.popen(scampcmd, 'r', -1)
         scmd.readlines()
 
-    print "Exiting successfully"
+    print("Exiting successfully")
 
 def astrometrynet(imagefile,pixel_scale=0.18,ra=None, dec=None, radius=1.0,depth=None, index_xyls=None, ext=0, cutedges=0):
 
@@ -355,6 +365,13 @@ def sextractor(imagefile,defaultsDir,doSubtractBackground=False,doPS1Params=Fals
             if hdulist[ii].data is None: continue
             hdulist[ii].data=hdulist[ii].data-hdulistback[ii].data
         hdulist.writeto(imagefile,clobber=True)        
+
+def psfex(imagefile,defaultsDir,doSubtractBackground=False,doPS1Params=False,zp=0.0,catfile=None,backfile=None):
+
+    if catfile == None:
+        catfile = imagefile.replace(".fits",".psfcat")
+    cmd_sex = 'sex %s -c %s/withPS1.sex -PARAMETERS_NAME %s/withPS1.param -FILTER_NAME %s/gauss_2.0_5x5.conv -CHECKIMAGE_TYPE BACKGROUND -CHECKIMAGE_NAME %s -CATALOG_NAME %s -PSF_NAME %s/default.psf -STARNNW_NAME %s/default.nnw -MAG_ZEROPOINT %.5f'%(imagefile,defaultsDir,defaultsDir,defaultsDir,backfile,catfile,defaultsDir,defaultsDir,zp)
+    os.system(cmd_sex)
 
 def utcparser(utcstart):
         """
@@ -509,6 +526,212 @@ def forcedphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,ga
 
         return np.array(mjds), np.array(mags), np.array(magerrs), np.array(fluxes), np.array(fluxerrs)
 
+def psfphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=1.0,doDifferential=False,xfield=None,yfield=None):
+
+    hdulist=fits.open(imagefile)
+    header = fits.getheader(imagefile)
+
+    if x == None:
+        w = WCS(header)
+        x0,y0 = w.wcs_world2pix(ra,dec,1)
+        gain = 1.0
+    else:
+        x0,y0 = x, y
+
+    if len(hdulist) > 3:
+       image = hdulist[1].data
+    elif len(hdulist) == 2:
+       image = hdulist[0].data
+    else:
+       image = hdulist[0].data
+    image_shape = image.shape
+
+    daogroup = DAOGroup(crit_separation=8)
+    mmm_bkg = MMMBackground()
+    #iraffind = IRAFStarFinder(threshold=2.0*mmm_bkg(image),
+    #                          fwhm=4.0)
+    fitter = LevMarLSQFitter()
+    gaussian_prf = IntegratedGaussianPRF(flux=1,sigma=3.00)
+    gaussian_prf.sigma.fixed = False
+    gaussian_prf.flux.fixed = False
+ 
+    psffile = imagefile.replace(".fits",".psf")
+    fid = open(psffile,'w')
+
+    if len(image_shape) == 3:
+
+        nhdu, xshape, yshape = image.shape
+        dateobs = utcparser(hdulist[0].header["UTCSTART"])
+        mjd = dateobs.mjd
+
+        if "KINCYCTI" in hdulist[0].header:
+            mjdall = mjd + np.arange(nhdu)*hdulist[0].header["KINCYCTI"]/86400.0
+        else:
+            mjdall = mjd + np.arange(nhdu)*hdulist[0].header["EXPTIME"]/86400.0
+
+        mjds, mags, magerrs, fluxes, fluxerrs = [], [], [], [], []
+        for jj in range(nhdu):
+            if np.mod(jj,10) == 0:
+                print('PSF fitting: %d/%d' % (jj, nhdu))
+
+            image = hdulist[0].data[jj,:,:]
+            mjd = mjdall[jj]
+
+            n, median, std = sigma_clipped_stats(image, sigma=3.0)
+            daofind = DAOStarFinder(fwhm=3.0, threshold=5.*std)
+
+            #phot_obj = IterativelySubtractedPSFPhotometry(finder=daofind,
+            #                                              group_maker=daogroup,
+            #                                              bkg_estimator=mmm_bkg,
+            #                                              psf_model=gaussian_prf,
+            #                                              fitter=fitter,
+            #                                              fitshape=(21, 21),
+            #                                              niters=10)
+
+            phot_obj = BasicPSFPhotometry(finder=daofind,
+                                          group_maker=daogroup,
+                                          psf_model=gaussian_prf,
+                                          fitter=fitter,
+                                          fitshape=(21, 21),
+                                          bkg_estimator=mmm_bkg)
+
+            image = image - np.median(image)
+            image_slice = np.zeros(image.shape)
+
+            slsize = 25
+            xmin = np.max([0,int(x0-slsize)])
+            xmax = np.min([int(x0+slsize),image.shape[0]])
+            ymin = np.max([0,int(y0-slsize)])
+            ymax = np.min([int(y0+slsize),image.shape[1]])
+            image_slice[ymin:ymax,xmin:xmax] = 1
+
+            if doDifferential:
+                xmin_f = np.max([0,int(xfield-slsize)])
+                xmax_f = np.min([int(xfield+slsize),image.shape[0]])
+                ymin_f = np.max([0,int(yfield-slsize)])
+                ymax_f = np.min([int(yfield+slsize),image.shape[1]])
+                image_slice[ymin_f:ymax_f,xmin_f:xmax_f] = 1
+
+            image = image*image_slice
+            phot_results = itr_phot_obj(image)
+
+            #if True:
+            if False:
+                #sources = iraffind(image)
+                sources = daofind(image)
+                import matplotlib.pyplot as plt
+   
+                positions = np.transpose((sources['ycentroid'], sources['xcentroid']))
+                apertures = CircularAperture(positions, r=4.)
+                fig, axs = plt.subplots(1,2)
+                plt.axes(axs[0])
+                plt.imshow(image.T, origin='lower', cmap='viridis', aspect=1,
+                           interpolation='nearest', 
+                           vmin=np.percentile(image[image>0],10),
+                           vmax=np.percentile(image[image>0],90))
+                apertures.plot(color='red')
+                plt.xlim([ymin,ymax])
+                plt.ylim([xmin,xmax])
+    
+                resimage = itr_phot_obj.get_residual_image()
+                plt.axes(axs[1])
+                plt.imshow(resimage.T, origin='lower',
+                           cmap='viridis', aspect=1,
+                           interpolation='nearest',
+                           vmin=0,
+                           vmax=np.percentile(resimage[resimage>0],90))
+                apertures.plot(color='red')
+                plt.xlim([ymin,ymax])
+                plt.ylim([xmin,xmax])
+                plt.savefig('test_%d.png' %jj)
+                plt.close()
+
+                fig, axs = plt.subplots(1,2)
+                plt.axes(axs[0])
+                plt.imshow(image.T, origin='lower', cmap='viridis', aspect=1,
+                           interpolation='nearest',
+                           vmin=np.percentile(image[image>0],10),
+                           vmax=np.percentile(image[image>0],90))
+                apertures.plot(color='red')
+                plt.xlim([ymin_f,ymax_f])
+                plt.ylim([xmin_f,xmax_f])
+
+                resimage = itr_phot_obj.get_residual_image()
+                plt.axes(axs[1])
+                plt.imshow(resimage.T, origin='lower',
+                           cmap='viridis', aspect=1,
+                           interpolation='nearest',
+                           vmin=np.percentile(resimage[resimage>0],10),
+                           vmax=np.percentile(resimage[resimage>0],90))
+                apertures.plot(color='red')
+                plt.xlim([ymin_f,ymax_f])
+                plt.ylim([xmin_f,xmax_f])
+                plt.savefig('test_f_%d.png' %jj)
+                plt.close()
+
+            dist = np.sqrt((phot_results["x_fit"]-x0)**2 + (phot_results["y_fit"]-y0)**2)
+            idx = np.argmin(dist)
+            flux = phot_results[idx]["flux_fit"]
+            fluxerr = phot_results[idx]["flux_unc"]
+            magerr = 1.0857*fluxerr/flux   #1.0857 = 2.5/log(10)
+            mag = zp-2.5*np.log10(flux)
+
+            if doDifferential:
+                dist = np.sqrt((phot_results["x_fit"]-xfield)**2 + (phot_results["y_fit"]-yfield)**2)
+                idy = np.argmin(dist)
+                flux_field = phot_results[idy]["flux_fit"]
+                fluxerr_field = phot_results[idy]["flux_unc"]
+                magerr_field = 1.0857*fluxerr_field/flux_field   #1.0857 = 2.5/log(10)
+                mag_field = zp-2.5*np.log10(flux_field)
+ 
+                mag = mag - mag_field
+                magerr = np.sqrt(magerr**2 + magerr_field**2)
+                fluxerr = np.sqrt((fluxerr/flux)**2 + (fluxerr_field/flux_field)**2)
+                flux = flux/flux_field
+                fluxerr = flux*fluxerr
+
+            mjds.append(mjd)
+            mags.append(mag)
+            magerrs.append(magerr)
+            fluxes.append(flux)
+            fluxerrs.append(fluxerr)
+
+            fid.write('%.5f %.5f %.5f %.5f %.5f\n'%(dateobs.mjd,mag,magerr,flux,fluxerr))
+        fid.close()
+
+        return np.array(mjds), np.array(mags), np.array(magerrs), np.array(fluxes), np.array(fluxerrs)
+
+    else:
+        mjds, mags, magerrs, fluxes, fluxerrs = [], [], [], [], []
+        for ii, hdu in enumerate(hdulist):
+            if ii == 0: continue
+            header = hdulist[ii].header
+            image = hdulist[ii].data
+            if not "DATE" in header:
+                print("Warning: 'DATE missing from %s hdu %d/%d"%(imagefile,ii,len(hdulist)))
+                continue
+
+            dateobs = Time(header["DATE"])
+
+            phot_results = itr_phot_obj(image)
+
+            dist = np.sqrt((phot_results["x_fit"]-x0)**2 + (phot_results["y_fit"]-y0)**2)
+            idx = np.argmin(dist)
+            flux = phot_results[idx]["flux_fit"]
+            fluxerr = phot_results[idx]["flux_unc"]
+            magerr = 1.0857*fluxerr/flux   #1.0857 = 2.5/log(10)
+            mag = zp-2.5*np.log10(flux)
+
+            mjds.append(dateobs.mjd)
+            mags.append(mag)
+            magerrs.append(magerr)
+            fluxes.append(flux)
+            fluxerrs.append(fluxerr)
+
+            fid.write('%.5f %.5f %.5f %.5f %.5f\n'%(dateobs.mjd,mag,magerr,flux,fluxerr))
+        fid.close()
+
+        return np.array(mjds), np.array(mags), np.array(magerrs), np.array(fluxes), np.array(fluxerrs)
 
 def get_links(minday = -1, day = None):
     links = []
