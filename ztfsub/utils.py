@@ -24,6 +24,7 @@ from astropy.modeling.fitting import LevMarLSQFitter
 
 import requests
 from lxml.html import fromstring
+import xmltodict
 
 import PythonPhot as pp
 
@@ -367,12 +368,34 @@ def sextractor(imagefile,defaultsDir,doSubtractBackground=False,doPS1Params=Fals
             hdulist[ii].data=hdulist[ii].data-hdulistback[ii].data
         hdulist.writeto(imagefile,clobber=True)        
 
-def psfex(imagefile,defaultsDir,doSubtractBackground=False,doPS1Params=False,zp=0.0,catfile=None,backfile=None):
+def psfex(imagefile,defaultsDir,psfexcatfile=None,psfexcubefile=None,
+          psfexfile=None,zp=0.0):
 
-    if catfile == None:
-        catfile = imagefile.replace(".fits",".psfcat")
-    cmd_sex = 'sex %s -c %s/withPS1.sex -PARAMETERS_NAME %s/withPS1.param -FILTER_NAME %s/gauss_2.0_5x5.conv -CHECKIMAGE_TYPE BACKGROUND -CHECKIMAGE_NAME %s -CATALOG_NAME %s -PSF_NAME %s/default.psf -STARNNW_NAME %s/default.nnw -MAG_ZEROPOINT %.5f'%(imagefile,defaultsDir,defaultsDir,defaultsDir,backfile,catfile,defaultsDir,defaultsDir,zp)
+    if psfexcatfile == None:
+        psfexcatfile = imagefile.replace(".fits",".psfexcat")
+    cmd_sex = 'sex %s -c %s/preppsfex.sex -PARAMETERS_NAME %s/preppsfex.param -CATALOG_NAME %s -FILTER_NAME %s/default.conv -PSF_NAME %s/default.psf -STARNNW_NAME %s/default.nnw -MAG_ZEROPOINT %.5f'%(imagefile,defaultsDir,defaultsDir,psfexcatfile,defaultsDir,defaultsDir,defaultsDir,zp)
     os.system(cmd_sex)
+
+    if psfexfile == None:
+        psfexfile = imagefile.replace(".fits",".psfex")
+    if psfexcubefile == None:
+        psfexcubefile = imagefile.replace(".fits",".psf.fits")
+    cmd_sex = 'psfex %s -c %s/psfex.conf -CHECKIMAGE_NAME %s -XML_NAME %s' % (psfexcatfile, defaultsDir, psfexcubefile, psfexfile)
+    os.system(cmd_sex)
+
+    mv_command = "mv %s %s" % (psfexcubefile.replace(".fits","_science.fits"),
+                               psfexcubefile)
+    os.system(mv_command)
+
+    with open(psfexfile) as f:
+        doc = xmltodict.parse(f.read())
+
+    FWHM_stats = doc['VOTABLE']['RESOURCE']['RESOURCE']['TABLE'][0]['DATA']['TABLEDATA']['TR']['TD'][20:23]
+    #print(doc['VOTABLE']['RESOURCE']['RESOURCE']['TABLE'][0]['DATA']['TABLEDATA']['TR']['TD'])
+  
+    FHWM_min = float(FWHM_stats[0])
+    FHWM_mean = float(FWHM_stats[1])
+    FHWM_max = float(FWHM_stats[2])
 
 def utcparser(utcstart):
         """
