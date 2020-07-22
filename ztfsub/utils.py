@@ -10,6 +10,7 @@ import datetime
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.time import Time
+from astropy.table import Table, vstack
 
 from astropy.stats import sigma_clipped_stats
 from photutils.psf import (IterativelySubtractedPSFPhotometry,
@@ -388,6 +389,11 @@ def utcparser(utcstart):
             Datetime structure
         """
 
+        try:
+            return Time(utcstart, format='isot')
+        except:
+            pass
+
         MONTHS = {"Jan": 1, "Feb": 2, "March": 3, "Mar": 3, "April": 4, "May": 5, "June": 6, "July": 7, "Aug": 8, "Sept": 9, "Oct": 10, "Nov": 11, "Dec": 12}
 
         month, date, year, time = utcstart.split("-")
@@ -546,15 +552,17 @@ def psfphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=
        image = hdulist[0].data
     image_shape = image.shape
 
-    daogroup = DAOGroup(crit_separation=8)
+    #daogroup = DAOGroup(crit_separation=8)
+    daogroup = DAOGroup(crit_separation=25)
+
     mmm_bkg = MMMBackground()
     #iraffind = IRAFStarFinder(threshold=2.0*mmm_bkg(image),
     #                          fwhm=4.0)
     fitter = LevMarLSQFitter()
-    gaussian_prf = IntegratedGaussianPRF(flux=1,sigma=3.00)
+    gaussian_prf = IntegratedGaussianPRF(flux=1,sigma=1.7)
     gaussian_prf.sigma.fixed = False
     gaussian_prf.flux.fixed = False
- 
+
     psffile = imagefile.replace(".fits",".psf")
     fid = open(psffile,'w')
 
@@ -578,7 +586,7 @@ def psfphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=
             mjd = mjdall[jj]
 
             n, median, std = sigma_clipped_stats(image, sigma=3.0)
-            daofind = DAOStarFinder(fwhm=3.0, threshold=5.*std)
+            daofind = DAOStarFinder(fwhm=2.0, threshold=2.*std)
 
             #phot_obj = IterativelySubtractedPSFPhotometry(finder=daofind,
             #                                              group_maker=daogroup,
@@ -587,13 +595,6 @@ def psfphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=
             #                                              fitter=fitter,
             #                                              fitshape=(21, 21),
             #                                              niters=10)
-
-            phot_obj = BasicPSFPhotometry(finder=daofind,
-                                          group_maker=daogroup,
-                                          psf_model=gaussian_prf,
-                                          fitter=fitter,
-                                          fitshape=(21, 21),
-                                          bkg_estimator=mmm_bkg)
 
             image = image - np.median(image)
             image_slice = np.zeros(image.shape)
@@ -613,7 +614,51 @@ def psfphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=
                 image_slice[ymin_f:ymax_f,xmin_f:xmax_f] = 1
 
             image = image*image_slice
-            phot_results = itr_phot_obj(image)
+
+            fullReduction = False
+            if fullReduction:
+                phot_obj = BasicPSFPhotometry(finder=daofind,
+                                              group_maker=daogroup,
+                                              psf_model=gaussian_prf,
+                                              fitter=fitter,
+                                              fitshape=(21, 21),
+                                              bkg_estimator=mmm_bkg)
+                phot_results = phot_obj(image)
+            else:
+                gaussian_prf = IntegratedGaussianPRF(flux=1,sigma=1.7)
+                gaussian_prf.sigma.fixed = False
+                gaussian_prf.flux.fixed = False
+                gaussian_prf.x_0.fixed = False
+                gaussian_prf.y_0.fixed = False
+
+                phot_obj = BasicPSFPhotometry(group_maker=daogroup,
+                                              psf_model=gaussian_prf,
+                                              fitter=fitter,
+                                              fitshape=(21, 21),
+                                              bkg_estimator=mmm_bkg)
+
+                pos = Table(names=['x_0', 'y_0'],
+                            data=[ [291, 262], [270, 262] ])
+                phot_results_tmp = phot_obj(image, init_guesses=pos)
+                resimage = phot_obj.get_residual_image()
+ 
+                pos = Table(names=['x_0', 'y_0'], data=[ [250.5], [256] ])
+ 
+                gaussian_prf = IntegratedGaussianPRF(flux=1,sigma=1.7)
+                gaussian_prf.sigma.fixed = False
+                gaussian_prf.flux.fixed = False
+                gaussian_prf.x_0.fixed = True
+                gaussian_prf.y_0.fixed = True
+
+                phot_obj = BasicPSFPhotometry(group_maker=daogroup,
+                                              psf_model=gaussian_prf,
+                                              fitter=fitter,
+                                              fitshape=(7, 7),
+                                              bkg_estimator=mmm_bkg)
+
+                phot_results = phot_obj(resimage, init_guesses=pos)
+
+                phot_results = vstack([phot_results_tmp, phot_results])
 
             #if True:
             if False:
@@ -633,7 +678,7 @@ def psfphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=
                 plt.xlim([ymin,ymax])
                 plt.ylim([xmin,xmax])
     
-                resimage = itr_phot_obj.get_residual_image()
+                resimage = phot_obj.get_residual_image()
                 plt.axes(axs[1])
                 plt.imshow(resimage.T, origin='lower',
                            cmap='viridis', aspect=1,
@@ -656,7 +701,7 @@ def psfphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=
                 plt.xlim([ymin_f,ymax_f])
                 plt.ylim([xmin_f,xmax_f])
 
-                resimage = itr_phot_obj.get_residual_image()
+                resimage = phot_obj.get_residual_image()
                 plt.axes(axs[1])
                 plt.imshow(resimage.T, origin='lower',
                            cmap='viridis', aspect=1,
@@ -668,6 +713,10 @@ def psfphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=
                 plt.ylim([xmin_f,xmax_f])
                 plt.savefig('test_f_%d.png' %jj)
                 plt.close()
+
+            #phot_results.pprint_all()
+
+            #print(stop)
 
             dist = np.sqrt((phot_results["x_fit"]-x0)**2 + (phot_results["y_fit"]-y0)**2)
             idx = np.argmin(dist)
@@ -689,6 +738,8 @@ def psfphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=
                 fluxerr = np.sqrt((fluxerr/flux)**2 + (fluxerr_field/flux_field)**2)
                 flux = flux/flux_field
                 fluxerr = flux*fluxerr
+
+            #print(phot_results[idy]["flux_fit"], phot_results[idx]["flux_fit"])
 
             mjds.append(mjd)
             mags.append(mag)
@@ -713,7 +764,7 @@ def psfphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=
 
             dateobs = Time(header["DATE"])
 
-            phot_results = itr_phot_obj(image)
+            phot_results = phot_obj(image)
 
             dist = np.sqrt((phot_results["x_fit"]-x0)**2 + (phot_results["y_fit"]-y0)**2)
             idx = np.argmin(dist)
