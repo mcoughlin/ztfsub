@@ -555,7 +555,7 @@ def forcedphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,ga
 
         return np.array(mjds), np.array(mags), np.array(magerrs), np.array(fluxes), np.array(fluxerrs)
 
-def psfphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=1.0,doDifferential=False,xfield=None,yfield=None):
+def psfphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=1.0,doDifferential=False,xfield=None,yfield=None,xfirst=None,yfirst=None):
 
     hdulist=fits.open(imagefile)
     header = fits.getheader(imagefile)
@@ -638,8 +638,7 @@ def psfphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=
 
             image = image*image_slice
 
-            fullReduction = False
-            if fullReduction:
+            if (xfirst is None) or (yfirst is None):
                 phot_obj = BasicPSFPhotometry(finder=daofind,
                                               group_maker=daogroup,
                                               psf_model=gaussian_prf,
@@ -661,11 +660,12 @@ def psfphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=
                                               bkg_estimator=mmm_bkg)
 
                 pos = Table(names=['x_0', 'y_0'],
-                            data=[ [291, 262], [270, 262] ])
+                            data=[ [xfirst], [yfirst] ])
                 phot_results_tmp = phot_obj(image, init_guesses=pos)
                 resimage = phot_obj.get_residual_image()
  
-                pos = Table(names=['x_0', 'y_0'], data=[ [250.5], [256] ])
+                pos = Table(names=['x_0', 'y_0'], data=[ [x0, xfield],
+                                                         [y0, yfield] ])
  
                 gaussian_prf = IntegratedGaussianPRF(flux=1,sigma=1.7)
                 gaussian_prf.sigma.fixed = False
