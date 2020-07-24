@@ -660,12 +660,12 @@ def psfphotometry(imagefile,ra=None,dec=None,x=None,y=None,fwhm=5.0,zp=0.0,gain=
                                               bkg_estimator=mmm_bkg)
 
                 pos = Table(names=['x_0', 'y_0'],
-                            data=[ [xfirst], [yfirst] ])
+                            data=[ [xfirst, xfield], [yfirst, yfield] ])
                 phot_results_tmp = phot_obj(image, init_guesses=pos)
                 resimage = phot_obj.get_residual_image()
  
-                pos = Table(names=['x_0', 'y_0'], data=[ [x0, xfield],
-                                                         [y0, yfield] ])
+                pos = Table(names=['x_0', 'y_0'], data=[ [x0],
+                                                         [y0] ])
  
                 gaussian_prf = IntegratedGaussianPRF(flux=1,sigma=1.7)
                 gaussian_prf.sigma.fixed = False
